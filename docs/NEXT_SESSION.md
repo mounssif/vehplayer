@@ -17,14 +17,40 @@ tap for a sideloaded app. What this gets you instead: publish from anywhere
 with `gh release create build-<N> <apk>#vehplayer-debug.apk --repo
 mounssif/vehplayer` (tag must be `build-<versionCode>`, asset must be named
 exactly `vehplayer-debug.apk`, `UpdateChecker.kt` parses both), and the app
-finds it over the network on next launch, no USB/phone<->laptop transfer.
-Build with `./gradlew assembleDebug -PvehplayerVersionCode=N
--PvehplayerVersionName=...` first, bump N each time. Verified end to end on
-the emulator this session: banner appeared, tap opened Chrome to the correct
-`github.com/.../releases/download/...` URL. `android/app/debug.keystore` is
-now committed and pinned in `signingConfigs` specifically so this works, a
-build signed with a different (e.g. freshly-generated CI) keystore would
-fail to install as an update over the existing app.
+finds and installs it over the network on next launch, no USB/phone<->laptop
+transfer. Build with `./gradlew assembleDebug -PvehplayerVersionCode=N
+-PvehplayerVersionName=...` first, bump N each time.
+
+`ApkInstaller.kt` downloads the APK in-app (DownloadManager, with live
+percentage progress polled into the status text, this went through two
+rounds of real-device feedback this session: first "doesn't tell you
+anything while downloading", fixed with progress polling) and hands it to
+the system installer directly via a FileProvider `content://` URI, no
+browser hop. Needs `REQUEST_INSTALL_PACKAGES` plus a one-time per-app
+"install unknown apps" grant (`ApkInstaller.installPermissionSettingsIntent`),
+same shape as the accessibility permission flow already in the app.
+`android/app/debug.keystore` is committed and pinned in `signingConfigs`
+specifically so this works - a build signed with a different (e.g.
+freshly-generated CI) keystore would fail to install as an update over the
+existing app. Verified the complete loop on the emulator: banner -> tap ->
+permission settings -> tap again -> live percentage -> "Download complete,
+opening installer..." -> real system update dialog.
+
+**Google Play Protect flags the app as "may be harmful" during that install
+scan** (found running the loop above on the emulator's Play Store system
+image, not a code bug). Not a hard block - "Install anyway" is still there
+below the warning - but expect it on every future install/update, this is a
+heuristic/reputation call, not a one-time thing that clears once accepted.
+Root cause is almost certainly the permission combination:
+`VehplayerAccessibilityService`'s input injection (dispatchGesture) plus
+`REQUEST_INSTALL_PACKAGES` self-updating is close to the textbook shape of
+a remote-access trojan to Play Protect's heuristics, independent of actual
+intent. Both permissions are core to what this app does (input control is
+the whole point of the accessibility service; self-update is what this
+session was asked to build), so there isn't a code fix that makes this go
+away without cutting a real feature. Do not attempt to suppress or evade
+the Play Protect prompt, that's a user security decision to make on their
+own device, not something to engineer around.
 
 ## veh.modev.be (fixed this session, but re-verify before trusting it)
 It's a Cloudflare Workers **static-assets deployment** (name `vehplayer`,
