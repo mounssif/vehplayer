@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
 import android.media.projection.MediaProjection
@@ -70,8 +71,24 @@ class CaptureService : Service() {
         if (intent == null) return START_NOT_STICKY
 
         // Foreground notification must go up before touching MediaProjection
-        // (required by platform policy on recent Android versions).
-        startForeground(NOTIFICATION_ID, buildNotification())
+        // (required by platform policy on recent Android versions). Type is
+        // scoped to what's actually granted+used this call: declaring the
+        // "microphone" manifest type here unconditionally crashes on API 34+
+        // with a SecurityException (RECORD_AUDIO is a dangerous permission
+        // that's never runtime-requested anywhere in this app yet, only
+        // manifest-declared) even when lowLatencyAudio is false and no
+        // microphone capture happens at all. Route B (low-latency audio)
+        // isn't wired to any UI control yet (MainActivity always passes
+        // false), so this only ever requests the mediaProjection type today;
+        // wiring Route B for real needs an actual RECORD_AUDIO runtime
+        // permission request added alongside it, not just this type flag.
+        val lowLatencyAudio = intent.getBooleanExtra(EXTRA_LOW_LATENCY_AUDIO, false)
+        val foregroundType = if (lowLatencyAudio) {
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+        } else {
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+        }
+        startForeground(NOTIFICATION_ID, buildNotification(), foregroundType)
 
         val resultCode = intent.getIntExtra(EXTRA_RESULT_CODE, 0)
         val resultData = intent.getParcelableExtraCompat<Intent>(EXTRA_RESULT_DATA) ?: run {
@@ -113,7 +130,7 @@ class CaptureService : Service() {
 
         startEncoderAndDisplay(projection, width, height)
 
-        if (intent.getBooleanExtra(EXTRA_LOW_LATENCY_AUDIO, false)) {
+        if (lowLatencyAudio) {
             val capture = PlaybackAudioCapture(projection) { payload, ptsUs ->
                 localServer.broadcastAudioFrame(payload, ptsUs)
             }
