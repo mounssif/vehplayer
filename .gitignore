@@ -1,0 +1,27 @@
+# Android / Gradle
+android/local.properties
+android/app/src/main/assets/webclient/
+android/.gradle/
+android/build/
+android/app/build/
+android/captures/
+android/*.iml
+android/.cxx/
+android/app/release/
+android/app/debug/
+
+# Node / TS (webclient, cloud)
+node_modules/
+dist/
+.wrangler/
+*.tsbuildinfo
+
+# Editors / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Env / secrets
+.env
+.env.local
