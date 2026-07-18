@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- ApkInstaller.kt downloads into context.getExternalFilesDir(null), which
+         maps to root-path here (app-specific external storage, no runtime
+         permission needed on API 29+). -->
+    <external-files-path name="updates" path="." />
+</paths>

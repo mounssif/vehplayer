@@ -28,6 +28,13 @@
     <uses-permission android:name="android.permission.BIND_VPN_SERVICE"
         tools:ignore="ProtectedPermissions" />
 
+    <!-- In-app update install (update/ApkInstaller.kt): lets the app hand a
+         downloaded APK straight to the system installer instead of routing
+         through the browser. Still one explicit user tap on the installer's
+         own confirmation, Android never skips that for a non-Play app; this
+         only removes the "open Chrome, find the download notification" hop. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <application
         android:allowBackup="false"
         android:label="@string/app_name"
@@ -78,6 +85,20 @@
                 <action android:name="android.net.VpnService" />
             </intent-filter>
         </service>
+
+        <!-- Hands the downloaded update APK (app-specific external files dir,
+             see ApkInstaller.kt) to the system installer as a content:// URI;
+             required since Android N, file:// URIs across app boundaries are
+             blocked. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 </manifest>
 

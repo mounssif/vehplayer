@@ -4,7 +4,6 @@ import android.app.Activity
 import android.content.ComponentName
 import android.content.Intent
 import android.media.projection.MediaProjectionManager
-import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
 import android.widget.Button
@@ -17,6 +16,7 @@ import app.vehplayer.android.input.VehplayerAccessibilityService
 import app.vehplayer.android.net.ReachabilityDecision
 import app.vehplayer.android.net.ReachabilityLadder
 import app.vehplayer.android.server.HttpAssetServer
+import app.vehplayer.android.update.ApkInstaller
 import app.vehplayer.android.update.UpdateChecker
 import java.net.Inet4Address
 import java.net.NetworkInterface
@@ -24,6 +24,7 @@ import java.net.SocketException
 import java.util.Collections
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -56,18 +57,25 @@ class MainActivity : AppCompatActivity() {
         val data = result.data
         if (result.resultCode == Activity.RESULT_OK && data != null) {
             CaptureService.start(this, result.resultCode, data, carWidth, carHeight, lowLatencyAudio = false)
-            val host = localIpAddress() ?: "<phone-hotspot-ip, none found, check the hotspot is on>"
-            setStatus(buildInitialStatus() + "\n\nstreaming started.\nOpen this in the car browser:\nhttp://$host:8080/go")
+            val host = localIpAddress()
+            if (host != null) {
+                setStatus("Streaming started! Open this address in your car's browser:\n\nhttp://$host:8080/go")
+            } else {
+                setStatus("Streaming started, but couldn't detect your hotspot's address. Turn on your phone's hotspot and tap Start again.")
+            }
         } else {
-            setStatus("screen capture permission denied, cannot start")
+            setStatus("Screen recording permission was declined — streaming can't start without it. Tap Start to try again.")
         }
     }
 
     private val vpnConsentLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
-            setStatus("VPN consent granted (tier b/c). VpnReachabilityService still needs its TODO implemented, see net/VpnReachabilityService.kt")
+            // VpnReachabilityService (tiers b/c) is a real, tracked TODO
+            // (net/VpnReachabilityService.kt), intentionally not surfaced to
+            // the user, that's an internal implementation detail.
+            setStatus("VPN permission granted, but this connection path isn't finished yet. Use a direct connection for now.")
         } else {
-            setStatus("VPN consent denied, no reachability tier available, cannot proceed (Foundation §10 kill criterion)")
+            setStatus("VPN permission was declined. Without it, this phone has no way to reach your car — streaming can't start.")
         }
     }
 
@@ -99,15 +107,34 @@ class MainActivity : AppCompatActivity() {
         setContentView(root)
         setStatus(buildInitialStatus())
 
-        httpServer = HttpAssetServer(applicationContext, wsPort = 8787).also {
-            try {
-                it.start()
-            } catch (e: java.io.IOException) {
-                setStatus("HttpAssetServer failed to start: ${e.message}\n(expected until webclient/dist/ is bundled into assets/webclient/, see server/HttpAssetServer.kt TODO)")
+        startHttpServerWithRetry()
+        checkForUpdate()
+    }
+
+    /**
+     * A same-process relaunch race (the exact one singleTask now prevents,
+     * see AndroidManifest.xml) could still, in principle, hit the old
+     * server's socket in the instant before the OS finishes releasing it on
+     * process death. Retrying beats surfacing a scary crash-looking message
+     * for something that resolves itself within a second.
+     */
+    private fun startHttpServerWithRetry(attempt: Int = 1) {
+        val maxAttempts = 5
+        val server = HttpAssetServer(applicationContext, wsPort = 8787)
+        try {
+            server.start()
+            httpServer = server
+        } catch (e: java.io.IOException) {
+            if (attempt < maxAttempts) {
+                CoroutineScope(Dispatchers.Main).launch {
+                    delay(500)
+                    startHttpServerWithRetry(attempt + 1)
+                }
+            } else {
+                android.util.Log.e("MainActivity", "HttpAssetServer failed to start after $maxAttempts attempts", e)
+                setStatus("Couldn't start the local server. Try fully closing the app (Recent apps > swipe away vehplayer) and reopening it.")
             }
         }
-
-        checkForUpdate()
     }
 
     /**
@@ -125,12 +152,28 @@ class MainActivity : AppCompatActivity() {
 
     private fun showUpdateBanner(update: UpdateChecker.UpdateInfo) {
         val btn = Button(this).apply {
-            text = "Update available: ${update.versionName} (tap to download)"
-            setOnClickListener {
-                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(update.downloadUrl)))
-            }
+            text = "Update available - tap to install"
+            setOnClickListener { startUpdate(update) }
         }
         rootLayout.addView(btn, 0)
+    }
+
+    /**
+     * Downloads and hands the APK straight to the system installer
+     * (ApkInstaller.kt) instead of opening the browser. Same one-time
+     * permission-grant pattern as the accessibility flow above: if
+     * "install unknown apps" isn't granted for this app yet, send the user
+     * to the settings screen for it and ask them to tap Update again,
+     * rather than silently falling back to a worse flow.
+     */
+    private fun startUpdate(update: UpdateChecker.UpdateInfo) {
+        if (!ApkInstaller.hasInstallPermission(this)) {
+            setStatus("One more permission is needed to install updates. Opening settings now — after allowing it, come back and tap Update again.")
+            startActivity(ApkInstaller.installPermissionSettingsIntent(this))
+            return
+        }
+        setStatus("Downloading update...")
+        ApkInstaller.downloadAndInstall(this, update.downloadUrl)
     }
 
     override fun onDestroy() {
@@ -141,21 +184,22 @@ class MainActivity : AppCompatActivity() {
 
     private fun onStartClicked() {
         if (!isAccessibilityServiceEnabled()) {
-            setStatus("enable input control first (step 1), then tap Start again")
+            setStatus("Enable input control first (step 1), then tap Start again.")
             return
         }
 
         when (val decision = ReachabilityLadder.decide(this)) {
             is ReachabilityDecision.Tier1NoVpnNeeded -> {
-                setStatus("reachability tier (a) IPv6 OK at ${decision.address}, requesting screen capture...")
+                android.util.Log.i("MainActivity", "reachability tier (a) OK at ${decision.address}")
+                setStatus("Connection looks good. Requesting screen access...")
                 requestProjection()
             }
             is ReachabilityDecision.NeedsVpnConsent -> {
-                setStatus("tier (a) unavailable, requesting VPN consent for tier (b)/(c)...")
+                setStatus("Direct connection isn't available. Trying an alternate path, this needs one extra permission...")
                 vpnConsentLauncher.launch(decision.prepareIntent)
             }
             is ReachabilityDecision.VpnAlreadyPrepared -> {
-                setStatus("VPN already prepared, requesting screen capture...")
+                setStatus("Requesting screen access...")
                 requestProjection()
             }
         }
