@@ -9,11 +9,54 @@
 > Session 3 added a cable-free update pipeline (GitHub Releases + in-app
 > checker) and fixed `veh.modev.be` (the deployed webclient CDN), which was
 > serving raw unbuilt source. Session 4 fixed two real crashes on stream
-> start (found from a user's screen recording, not from emulator testing -
-> the emulator alone had missed both) and a versionCode publishing bug that
-> made the update loop never terminate. **The car browser has still not
-> actually been tested against veh.modev.be** (only curl-verified), that's
-> still the next real-hardware thing to do.
+> start, a versionCode publishing bug that made the update loop never
+> terminate, and an `ERR_CONNECTION_REFUSED` bug where the local server died
+> as soon as the user left the app screen (all three found from real-device
+> evidence a user provided - a screen recording, then a "my hotspot was
+> definitely on" pushback that turned out to be right and pointed at the
+> real bug - not from emulator testing alone, the emulator had missed all
+> three). **The car browser has still not actually been tested against
+> veh.modev.be** (only curl-verified), that's still the next real-hardware
+> thing to do.
+
+## HttpAssetServer lifecycle fix (session 4, build-8)
+`HttpAssetServer` (the local `/go` endpoint - mints the pairing token,
+serves the offline bundle fallback) used to be owned by `MainActivity` and
+stopped in its `onDestroy()`. `CaptureService` (the actual capture/encode
+pipeline) is a proper foreground service and survives the user
+backgrounding or swiping the app away while walking to the car - that's
+the whole point of a foreground service. But the HTTP server died the
+moment the Activity did, while capture kept running underneath it: the
+car's `/go` request got `ERR_CONNECTION_REFUSED` even though the hotspot and
+the capture session were both fine. A user reported exactly this with a
+confirmed-correct hotspot+Tesla connection, which is what pointed at the
+real cause instead of a wrong assumption about their setup.
+
+Fixed: `HttpAssetServer` now starts inside `CaptureService.onStartCommand()`
+(same port-fallback retry logic that used to live in `MainActivity`) and
+stops in `stopCaptureInternals()`, so its lifetime matches the actual
+capture session, not whichever screen happens to be on top.
+`CaptureService.httpServerPort` is public (`private set`) so `MainActivity`
+can poll it briefly after calling `CaptureService.start()` to build the
+"open this URL" message, since the port now resolves asynchronously inside
+the service instead of synchronously in `onCreate()`.
+
+Verified on the emulator: started streaming, confirmed `/go` responds,
+swiped the vehplayer card out of Recents (confirmed via uiautomator the
+card was actually gone, task removed), confirmed the process survives
+(foreground service), confirmed `/go` still responds with a fresh valid
+token afterward - it did not before this fix, same repro reproduced the
+bug cleanly on the old code first.
+
+**Known remaining gap, not yet fixed**: `MainActivity.localIpAddress()`
+still picks "the first non-loopback IPv4 address" with no preference for
+the actual hotspot/AP interface over e.g. a cellular data interface if
+both happen to be up. Wasn't the cause of either bug found this session
+(the ERR_CONNECTION_REFUSED user's IP address itself was correct, hotspot
+really was up), but it's a latent correctness gap worth tightening -
+prefer an interface whose address is in a private RFC1918 range and/or
+whose name suggests AP/hotspot mode, before falling back to "first
+non-loopback" as a last resort.
 
 ## Two real crash fixes (session 4) - read this before touching CaptureService/H264Encoder again
 Both found from a user-provided screen recording of a real device crash-loop
