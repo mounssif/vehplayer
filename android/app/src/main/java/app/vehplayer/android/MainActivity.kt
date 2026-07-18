@@ -41,6 +41,10 @@ import kotlinx.coroutines.withContext
  */
 class MainActivity : AppCompatActivity() {
 
+    companion object {
+        private const val DEFAULT_HTTP_PORT = 8080
+    }
+
     private lateinit var statusView: TextView
 
     // Boot-time placeholder only: no car has connected yet when capture
@@ -51,6 +55,7 @@ class MainActivity : AppCompatActivity() {
     private var carHeight = 800
 
     private var httpServer: HttpAssetServer? = null
+    private var httpServerPort = DEFAULT_HTTP_PORT
     private lateinit var rootLayout: LinearLayout
 
     private val projectionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -59,7 +64,7 @@ class MainActivity : AppCompatActivity() {
             CaptureService.start(this, result.resultCode, data, carWidth, carHeight, lowLatencyAudio = false)
             val host = localIpAddress()
             if (host != null) {
-                setStatus("Streaming started! Open this address in your car's browser:\n\nhttp://$host:8080/go")
+                setStatus("Streaming started! Open this address in your car's browser:\n\nhttp://$host:$httpServerPort/go")
             } else {
                 setStatus("Streaming started, but couldn't detect your hotspot's address. Turn on your phone's hotspot and tap Start again.")
             }
@@ -104,6 +109,14 @@ class MainActivity : AppCompatActivity() {
         }
         root.addView(startBtn)
 
+        val versionFooter = TextView(this).apply {
+            text = "vehplayer ${BuildConfig.VERSION_NAME} (build ${BuildConfig.VERSION_CODE})"
+            textSize = 11f
+            alpha = 0.5f
+            setPadding(0, 32, 0, 0)
+        }
+        root.addView(versionFooter)
+
         setContentView(root)
         setStatus(buildInitialStatus())
 
@@ -112,27 +125,33 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * A same-process relaunch race (the exact one singleTask now prevents,
-     * see AndroidManifest.xml) could still, in principle, hit the old
-     * server's socket in the instant before the OS finishes releasing it on
-     * process death. Retrying beats surfacing a scary crash-looking message
-     * for something that resolves itself within a second.
+     * First few attempts stay on the default port with a short delay: covers
+     * a same-process relaunch race (the exact one singleTask now prevents,
+     * see AndroidManifest.xml) in the instant before the OS finishes
+     * releasing the old socket. If it's still failing after that, retrying
+     * the same port forever won't help - something else (another app, or a
+     * genuinely stuck process) holds it - so the remaining attempts move to
+     * different ports instead, tried immediately with no delay. Whichever
+     * port actually binds is what the "open this URL" message uses.
      */
-    private fun startHttpServerWithRetry(attempt: Int = 1) {
-        val maxAttempts = 5
-        val server = HttpAssetServer(applicationContext, wsPort = 8787)
+    private fun startHttpServerWithRetry(index: Int = 0) {
+        val portAttempts = listOf(DEFAULT_HTTP_PORT, DEFAULT_HTTP_PORT, DEFAULT_HTTP_PORT, 8081, 8082, 8083)
+        if (index >= portAttempts.size) {
+            android.util.Log.e("MainActivity", "HttpAssetServer failed to start on any of $portAttempts")
+            setStatus("Couldn't start the local server on any port. Another app on your phone may be using it - try force-stopping vehplayer (Settings > Apps > vehplayer > Force stop) and reopening it, or restarting your phone.")
+            return
+        }
+        val port = portAttempts[index]
+        val server = HttpAssetServer(applicationContext, wsPort = 8787, port = port)
         try {
             server.start()
             httpServer = server
+            httpServerPort = port
         } catch (e: java.io.IOException) {
-            if (attempt < maxAttempts) {
-                CoroutineScope(Dispatchers.Main).launch {
-                    delay(500)
-                    startHttpServerWithRetry(attempt + 1)
-                }
-            } else {
-                android.util.Log.e("MainActivity", "HttpAssetServer failed to start after $maxAttempts attempts", e)
-                setStatus("Couldn't start the local server. Try fully closing the app (Recent apps > swipe away vehplayer) and reopening it.")
+            val isSamePortRetry = index < 2 && portAttempts[index + 1] == port
+            CoroutineScope(Dispatchers.Main).launch {
+                if (isSamePortRetry) delay(500)
+                startHttpServerWithRetry(index + 1)
             }
         }
     }
