@@ -1,0 +1,23 @@
+# Cloudflare Workers config. Chosen because the project already deploys
+# webclient/probe via CF Pages (webclient/probe/DEPLOY_CF_PAGES.md), keeping
+# control-plane infra on the same platform is one fewer vendor to manage,
+# consistent with Foundation §9's "near-zero marginal cost" cost structure.
+name = "vehplayer-cloud"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+# TODO(claude-code): these bindings are declared but not provisioned, run
+# `wrangler kv namespace create ENTITLEMENTS` etc. and paste the real IDs in
+# before `wrangler deploy` works. Left as named placeholders so the code
+# referencing them (src/*.ts) has something concrete to type against.
+[[kv_namespaces]]
+binding = "ENTITLEMENTS"
+id = "REPLACE_ME"
+
+[[kv_namespaces]]
+binding = "REMOTE_CONFIG"
+id = "REPLACE_ME"
+
+[[kv_namespaces]]
+binding = "COMPAT_TELEMETRY"
+id = "REPLACE_ME"

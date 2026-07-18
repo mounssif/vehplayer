@@ -1,0 +1,16 @@
+{
+  "name": "vehplayer-cloud",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Control plane only, never media (Foundation §6/§9, ARCHITECTURE.md overview diagram). Entitlements, remote config, opt-in compat telemetry, and (separately) the CDN-hosted webclient bundle.",
+  "scripts": {
+    "dev": "wrangler dev",
+    "typecheck": "tsc --noEmit",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4",
+    "wrangler": "^3.78.0",
+    "@cloudflare/workers-types": "^4.20240924.0"
+  }
+}
