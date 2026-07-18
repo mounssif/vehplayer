@@ -15,9 +15,70 @@
 > evidence a user provided - a screen recording, then a "my hotspot was
 > definitely on" pushback that turned out to be right and pointed at the
 > real bug - not from emulator testing alone, the emulator had missed all
-> three). **The car browser has still not actually been tested against
-> veh.modev.be** (only curl-verified), that's still the next real-hardware
-> thing to do.
+> three). Session 4 also added `CarDashboardActivity` (Phase 1 of a real
+> car-optimized home screen, replacing raw phone mirroring). **The car
+> browser has still not actually been tested against veh.modev.be** (only
+> curl-verified), that's still the next real-hardware thing to do.
+
+## CarDashboardActivity (session 4, build-9) - Phase 1 of 3
+Founder pushback that mattered: "casting my whole phone has no value to me,
+I want the Android Auto/CarPlay *feeling*, not a raw mirror." Re-embedding
+the actual Android Auto/CarPlay protocol is not viable (Tesla has zero
+native support for either, that constraint is why this whole project casts
+to a browser instead of using a head-unit protocol; TeslAA - a real
+predecessor project - died when Google tightened one validation check it
+controlled, which is the concrete case for staying protocol-independent,
+see GROWTH_SAAS.md §5). But "cast our own car-optimized UI instead of the
+raw phone screen" needed no protocol at all: mirror mode already casts
+whatever's in the foreground, so if a purpose-built dashboard Activity is
+what's in front when streaming starts, that's what the car sees. Zero
+wire-protocol or capture-pipeline changes.
+
+**Note found while investigating this**: `docs/VEPLA_Foundation.md` is
+internally versioned "v2" and repeatedly says "unchanged, see v1 §N" for
+load-bearing sections (§3 Product Vision, §4 The Autopsy/Lessons 1-5,
+§5 Competitive Position, §10 Failure Modes, §12 Working Agreements) - but
+**no v1 document exists anywhere in this repo**. Whatever "v1" originally
+contained (the actual Autopsy lessons, the actual Failure Mode
+descriptions) was never captured as a file here. `GROWTH_SAAS.md` restates
+enough of it in passing to work with (TeslAA died to a Google validation
+change, Castla's ceiling is Shizuku, the moat is protocol-independence),
+but if a future session needs the *original* v1 detail this doc keeps
+citing, it does not exist and someone needs to either reconstruct it or
+stop citing it as if it does.
+
+Three-phase plan:
+1. **Done (build-9)**: `CarDashboardActivity` - full-screen, immersive,
+   warm-dark themed (deliberately not the cool blue-grey every AA/CarPlay
+   clone uses), Space Grotesk display type (OFL, `assets/licenses/`). Hero
+   now-playing card (static "Nothing playing" placeholder) weighted larger
+   than the Navigate/Phone/Messages tile column - hierarchy is
+   informational (what you glance at constantly vs. occasionally), not
+   decorative. Tiles fire plain launcher intents; whatever they open is
+   what mirror mode shows next, automatically, no new capture code.
+   `MainActivity` now hands off to this Activity (with the resolved
+   connection URL as an intent extra) once `CaptureService.httpServerPort`
+   resolves, instead of showing the URL on its own plain status screen.
+2. **Not started: real now-playing.** Needs `MediaSessionManager` +
+   Notification Listener access (`android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS`)
+   to read whatever's actively playing (Spotify, YouTube Music, anything) -
+   this is a sensitive permission, give it its own explicit ask/explanation
+   step, same pattern as the accessibility and install-unknown-apps flows
+   already in the app, don't bundle the request into an unrelated action.
+   `androidx.palette:palette-ktx` is already a dependency (added this
+   session) for tinting the now-playing card from the actual album art's
+   dominant color once real art is available.
+3. **Not started: nav-app picker.** Query installed apps that handle
+   `Intent.ACTION_VIEW` + `geo:` (covers Waze, Maps, whatever's installed,
+   not just those two hardcoded), let the user pick a default, store it
+   (SharedPreferences is enough, no need for anything heavier), fire that
+   specific app instead of the generic geo intent that currently lets the
+   system prompt/pick.
+
+Verified end to end on the emulator (not just the layout screenshotted in
+isolation): real Start -> VPN -> screen-share flow, confirmed via `dumpsys`
+that `CarDashboardActivity` is the actual foreground activity once
+streaming starts, real detected IP shown, Phone tile opens the real dialer.
 
 ## HttpAssetServer lifecycle fix (session 4, build-8)
 `HttpAssetServer` (the local `/go` endpoint - mints the pairing token,
