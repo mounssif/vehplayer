@@ -15,7 +15,6 @@ import app.vehplayer.android.capture.CaptureService
 import app.vehplayer.android.input.VehplayerAccessibilityService
 import app.vehplayer.android.net.ReachabilityDecision
 import app.vehplayer.android.net.ReachabilityLadder
-import app.vehplayer.android.server.HttpAssetServer
 import app.vehplayer.android.update.ApkInstaller
 import app.vehplayer.android.update.UpdateChecker
 import java.net.Inet4Address
@@ -41,10 +40,6 @@ import kotlinx.coroutines.withContext
  */
 class MainActivity : AppCompatActivity() {
 
-    companion object {
-        private const val DEFAULT_HTTP_PORT = 8080
-    }
-
     private lateinit var statusView: TextView
 
     // Boot-time placeholder only: no car has connected yet when capture
@@ -54,22 +49,43 @@ class MainActivity : AppCompatActivity() {
     private var carWidth = 1280
     private var carHeight = 800
 
-    private var httpServer: HttpAssetServer? = null
-    private var httpServerPort = DEFAULT_HTTP_PORT
     private lateinit var rootLayout: LinearLayout
 
     private val projectionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val data = result.data
         if (result.resultCode == Activity.RESULT_OK && data != null) {
             CaptureService.start(this, result.resultCode, data, carWidth, carHeight, lowLatencyAudio = false)
+            setStatus("Streaming started! Preparing the local address...")
+            awaitHttpServerAndShowUrl()
+        } else {
+            setStatus("Screen recording permission was declined — streaming can't start without it. Tap Start to try again.")
+        }
+    }
+
+    /**
+     * CaptureService.start() only fires the service Intent; the local HTTP
+     * server (owned there now, not here - see CaptureService.httpServerPort's
+     * doc comment for why) resolves its port asynchronously as part of that
+     * service's own startup. Poll briefly rather than guessing a port.
+     */
+    private fun awaitHttpServerAndShowUrl(attempt: Int = 0) {
+        val port = CaptureService.instance?.httpServerPort
+        if (port != null) {
             val host = localIpAddress()
             if (host != null) {
-                setStatus("Streaming started! Open this address in your car's browser:\n\nhttp://$host:$httpServerPort/go")
+                setStatus("Streaming started! Open this address in your car's browser:\n\nhttp://$host:$port/go")
             } else {
                 setStatus("Streaming started, but couldn't detect your hotspot's address. Turn on your phone's hotspot and tap Start again.")
             }
-        } else {
-            setStatus("Screen recording permission was declined — streaming can't start without it. Tap Start to try again.")
+            return
+        }
+        if (attempt >= 20) { // ~4s at 200ms apart
+            setStatus("Streaming started, but the local server didn't come up yet. Check the vehplayer notification is still there, then reopen this screen.")
+            return
+        }
+        CoroutineScope(Dispatchers.Main).launch {
+            delay(200)
+            awaitHttpServerAndShowUrl(attempt + 1)
         }
     }
 
@@ -120,40 +136,7 @@ class MainActivity : AppCompatActivity() {
         setContentView(root)
         setStatus(buildInitialStatus())
 
-        startHttpServerWithRetry()
         checkForUpdate()
-    }
-
-    /**
-     * First few attempts stay on the default port with a short delay: covers
-     * a same-process relaunch race (the exact one singleTask now prevents,
-     * see AndroidManifest.xml) in the instant before the OS finishes
-     * releasing the old socket. If it's still failing after that, retrying
-     * the same port forever won't help - something else (another app, or a
-     * genuinely stuck process) holds it - so the remaining attempts move to
-     * different ports instead, tried immediately with no delay. Whichever
-     * port actually binds is what the "open this URL" message uses.
-     */
-    private fun startHttpServerWithRetry(index: Int = 0) {
-        val portAttempts = listOf(DEFAULT_HTTP_PORT, DEFAULT_HTTP_PORT, DEFAULT_HTTP_PORT, 8081, 8082, 8083)
-        if (index >= portAttempts.size) {
-            android.util.Log.e("MainActivity", "HttpAssetServer failed to start on any of $portAttempts")
-            setStatus("Couldn't start the local server on any port. Another app on your phone may be using it - try force-stopping vehplayer (Settings > Apps > vehplayer > Force stop) and reopening it, or restarting your phone.")
-            return
-        }
-        val port = portAttempts[index]
-        val server = HttpAssetServer(applicationContext, wsPort = 8787, port = port)
-        try {
-            server.start()
-            httpServer = server
-            httpServerPort = port
-        } catch (e: java.io.IOException) {
-            val isSamePortRetry = index < 2 && portAttempts[index + 1] == port
-            CoroutineScope(Dispatchers.Main).launch {
-                if (isSamePortRetry) delay(500)
-                startHttpServerWithRetry(index + 1)
-            }
-        }
     }
 
     /**
@@ -193,12 +176,6 @@ class MainActivity : AppCompatActivity() {
         }
         setStatus("Downloading update...")
         ApkInstaller.downloadAndInstall(this, update.downloadUrl) { message -> setStatus(message) }
-    }
-
-    override fun onDestroy() {
-        httpServer?.stop()
-        httpServer = null
-        super.onDestroy()
     }
 
     private fun onStartClicked() {

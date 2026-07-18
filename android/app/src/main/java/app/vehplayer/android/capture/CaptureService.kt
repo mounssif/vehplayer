@@ -17,8 +17,13 @@ import android.util.DisplayMetrics
 import androidx.core.app.NotificationCompat
 import app.vehplayer.android.audio.PlaybackAudioCapture
 import app.vehplayer.android.protocol.WireProtocol
+import app.vehplayer.android.server.HttpAssetServer
 import app.vehplayer.android.server.LocalMediaServer
 import app.vehplayer.android.server.ServerHolder
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * Mirror mode capture (ARCHITECTURE.md §2 "Mirror mode: MediaProjection of
@@ -40,6 +45,7 @@ class CaptureService : Service() {
         const val EXTRA_LOW_LATENCY_AUDIO = "low_latency_audio" // Route B toggle, Foundation §6b item 3, Pro-gated by MainActivity before this extra is ever set true
         private const val NOTIFICATION_CHANNEL_ID = "vehplayer_capture"
         private const val NOTIFICATION_ID = 1001
+        private const val DEFAULT_HTTP_PORT = 8080
 
         fun start(context: Context, resultCode: Int, resultData: Intent, carWidth: Int, carHeight: Int, lowLatencyAudio: Boolean = false) {
             val intent = Intent(context, CaptureService::class.java).apply {
@@ -64,6 +70,21 @@ class CaptureService : Service() {
     private var audioCapture: PlaybackAudioCapture? = null
     private var currentWidth = 0
     private var currentHeight = 0
+
+    private var httpServer: HttpAssetServer? = null
+
+    /**
+     * Null until [startHttpServerWithRetry] resolves a port. Owned here (a
+     * foreground Service, survives the user backgrounding/swiping the app
+     * away while walking to the car) instead of MainActivity (an Activity,
+     * destroyed in exactly that scenario) - the local server used to die
+     * with the Activity while capture kept running, so the car's /go
+     * request got ERR_CONNECTION_REFUSED even though the hotspot and
+     * capture session were both still fine. Public so MainActivity can poll
+     * it after calling [start] to build the "open this URL" message.
+     */
+    var httpServerPort: Int? = null
+        private set
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -128,6 +149,7 @@ class CaptureService : Service() {
         server = localServer
         ServerHolder.server = localServer
 
+        startHttpServerWithRetry()
         startEncoderAndDisplay(projection, width, height)
 
         if (lowLatencyAudio) {
@@ -212,6 +234,33 @@ class CaptureService : Service() {
         startEncoderAndDisplay(projection, width, height)
     }
 
+    /**
+     * Same port-fallback strategy as (formerly) MainActivity: a couple of
+     * quick retries on the default port covers a transient release race,
+     * then falls through immediately to alternate ports if something else
+     * genuinely holds it long-term.
+     */
+    private fun startHttpServerWithRetry(index: Int = 0) {
+        val portAttempts = listOf(DEFAULT_HTTP_PORT, DEFAULT_HTTP_PORT, DEFAULT_HTTP_PORT, 8081, 8082, 8083)
+        if (index >= portAttempts.size) {
+            android.util.Log.e("CaptureService", "HttpAssetServer failed to start on any of $portAttempts")
+            return
+        }
+        val port = portAttempts[index]
+        val server = HttpAssetServer(applicationContext, wsPort = 8787, port = port)
+        try {
+            server.start()
+            httpServer = server
+            httpServerPort = port
+        } catch (e: java.io.IOException) {
+            val isSamePortRetry = index < 2 && portAttempts[index + 1] == port
+            CoroutineScope(Dispatchers.Main).launch {
+                if (isSamePortRetry) delay(500)
+                startHttpServerWithRetry(index + 1)
+            }
+        }
+    }
+
     private fun stopCaptureInternals() {
         virtualDisplay?.release()
         virtualDisplay = null
@@ -222,6 +271,9 @@ class CaptureService : Service() {
         server?.stop()
         server = null
         ServerHolder.server = null
+        httpServer?.stop()
+        httpServer = null
+        httpServerPort = null
         mediaProjection?.stop()
         mediaProjection = null
     }
