@@ -1,0 +1,8 @@
+# Deploys the built webclient (dist/, `npm run build`) as a Cloudflare
+# Workers static-assets site, served at veh.modev.be (custom domain bound to
+# this worker via the Cloudflare dashboard, not managed here).
+name = "vehplayer"
+compatibility_date = "2026-07-18"
+
+[assets]
+directory = "./dist"
