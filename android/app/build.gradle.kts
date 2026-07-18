@@ -3,6 +3,13 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+// Overridable for published builds (`./gradlew assembleDebug -PvehplayerVersionCode=N
+// -PvehplayerVersionName=...`) so each build published for the in-app update
+// checker (MainActivity's UpdateChecker) carries a real, comparable
+// versionCode. Local dev builds fall back to the Gate-1 defaults.
+val vehplayerVersionCode = (project.findProperty("vehplayerVersionCode") as String?)?.toIntOrNull() ?: 1
+val vehplayerVersionName = (project.findProperty("vehplayerVersionName") as String?) ?: "0.1.0-gate1"
+
 android {
     namespace = "app.vehplayer.android"
     compileSdk = 35
@@ -12,8 +19,24 @@ android {
         // minSdk 29: AudioPlaybackCapture (Foundation §6) requires Android 10+.
         minSdk = 29
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0-gate1"
+        versionCode = vehplayerVersionCode
+        versionName = vehplayerVersionName
+    }
+
+    // Pinned to a keystore committed in-repo (well-known debug credentials,
+    // not a real secret, Android generates these identically on every
+    // machine by default) rather than the default `~/.android/debug.keystore`,
+    // which differs per machine/CI runner. Without this, a build published
+    // from a different machine than the one that signed the currently
+    // installed app would fail to install as an update (signature mismatch),
+    // exactly the cable-free remote-update flow this pin exists for.
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
     }
 
     buildTypes {
@@ -28,6 +51,10 @@ android {
     }
     kotlinOptions {
         jvmTarget = "17"
+    }
+
+    buildFeatures {
+        buildConfig = true // UpdateChecker compares against BuildConfig.VERSION_CODE
     }
 }
 

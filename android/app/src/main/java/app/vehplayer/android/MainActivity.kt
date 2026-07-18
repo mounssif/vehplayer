@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.ComponentName
 import android.content.Intent
 import android.media.projection.MediaProjectionManager
+import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
 import android.widget.Button
@@ -16,10 +17,15 @@ import app.vehplayer.android.input.VehplayerAccessibilityService
 import app.vehplayer.android.net.ReachabilityDecision
 import app.vehplayer.android.net.ReachabilityLadder
 import app.vehplayer.android.server.HttpAssetServer
+import app.vehplayer.android.update.UpdateChecker
 import java.net.Inet4Address
 import java.net.NetworkInterface
 import java.net.SocketException
 import java.util.Collections
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * The two-minute setup flow (Foundation §3): permission walkthrough, then
@@ -44,6 +50,7 @@ class MainActivity : AppCompatActivity() {
     private var carHeight = 800
 
     private var httpServer: HttpAssetServer? = null
+    private lateinit var rootLayout: LinearLayout
 
     private val projectionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val data = result.data
@@ -71,6 +78,7 @@ class MainActivity : AppCompatActivity() {
             orientation = LinearLayout.VERTICAL
             setPadding(48, 96, 48, 48)
         }
+        rootLayout = root
         statusView = TextView(this).apply { textSize = 15f }
         root.addView(statusView)
 
@@ -98,6 +106,31 @@ class MainActivity : AppCompatActivity() {
                 setStatus("HttpAssetServer failed to start: ${e.message}\n(expected until webclient/dist/ is bundled into assets/webclient/, see server/HttpAssetServer.kt TODO)")
             }
         }
+
+        checkForUpdate()
+    }
+
+    /**
+     * Best-effort, silent unless an update is actually found: no banner, no
+     * dialog, on failure. Runs once per launch, cheap enough not to need
+     * debouncing/caching for how infrequently this app is opened.
+     */
+    private fun checkForUpdate() {
+        CoroutineScope(Dispatchers.IO).launch {
+            val update = UpdateChecker.checkBlocking() ?: return@launch
+            if (update.versionCode <= BuildConfig.VERSION_CODE) return@launch
+            withContext(Dispatchers.Main) { showUpdateBanner(update) }
+        }
+    }
+
+    private fun showUpdateBanner(update: UpdateChecker.UpdateInfo) {
+        val btn = Button(this).apply {
+            text = "Update available: ${update.versionName} (tap to download)"
+            setOnClickListener {
+                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(update.downloadUrl)))
+            }
+        }
+        rootLayout.addView(btn, 0)
     }
 
     override fun onDestroy() {

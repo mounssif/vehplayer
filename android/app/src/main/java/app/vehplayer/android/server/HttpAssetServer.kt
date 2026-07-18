@@ -20,13 +20,23 @@ import java.net.URLEncoder
  * `/go` is the canonical entry point (ARCHITECTURE.md §6: "the /go page
  * doubles as the compatibility probe"): it mints a fresh pairing token and
  * redirects into the bundle with `?token=...&ws=...` set, matching
- * webclient/src/main.ts's query-param expectations.
+ * webclient/src/main.ts's query-param expectations. Redirects to the CDN
+ * bundle (auto-updates without a new APK, README's "resilience against
+ * domain failure" design) rather than the local one; the local bundle stays
+ * reachable directly (e.g. http://<phone-ip>:8080/index.html?...) as the
+ * manual fallback if the CDN is ever unreachable. Only the static asset
+ * origin changes here, the WS URL below always targets the phone directly,
+ * the data plane is local, always (Foundation, house rules).
  */
 class HttpAssetServer(
     private val context: Context,
     private val wsPort: Int,
     port: Int = 8080,
 ) : NanoHTTPD(port) {
+
+    companion object {
+        private const val CDN_BASE_URL = "https://veh.modev.be"
+    }
 
     override fun serve(session: IHTTPSession): Response {
         val uri = session.uri
@@ -35,7 +45,7 @@ class HttpAssetServer(
             val token = PairingToken.generate()
             val host = session.headers["host"]?.substringBefore(':') ?: "localhost"
             val wsUrl = "ws://$host:$wsPort/"
-            val redirectTo = "/index.html?token=$token&ws=${URLEncoder.encode(wsUrl, "UTF-8")}"
+            val redirectTo = "$CDN_BASE_URL/index.html?token=$token&ws=${URLEncoder.encode(wsUrl, "UTF-8")}"
             return newFixedLengthResponse(Response.Status.REDIRECT, "text/plain", "").apply {
                 addHeader("Location", redirectTo)
             }
