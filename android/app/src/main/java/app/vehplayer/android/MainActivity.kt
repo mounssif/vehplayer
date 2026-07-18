@@ -192,7 +192,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
         setStatus("Downloading update...")
-        ApkInstaller.downloadAndInstall(this, update.downloadUrl)
+        ApkInstaller.downloadAndInstall(this, update.downloadUrl) { message -> setStatus(message) }
     }
 
     override fun onDestroy() {

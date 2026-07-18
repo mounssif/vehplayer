@@ -8,6 +8,8 @@ import android.content.IntentFilter
 import android.database.Cursor
 import android.net.Uri
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import android.util.Log
 import androidx.core.content.FileProvider
@@ -24,6 +26,7 @@ import java.io.File
 object ApkInstaller {
     private const val TAG = "ApkInstaller"
     private const val FILE_NAME = "vehplayer-update.apk"
+    private const val POLL_INTERVAL_MS = 400L
 
     /** REQUEST_INSTALL_PACKAGES is a manifest-declared permission, but installing from a
      * specific source still needs this per-app runtime toggle (same shape as the
@@ -35,13 +38,17 @@ object ApkInstaller {
         Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${context.packageName}"))
 
     /**
-     * Fire-and-forget: downloads via DownloadManager (handles retry/progress
-     * natively), then launches the installer once the download actually
-     * succeeded. Caller should have already checked [hasInstallPermission].
+     * Downloads via DownloadManager (handles the actual transfer natively),
+     * polling it for progress since DownloadManager's own notification is
+     * easy to miss and gives no in-app feedback. [onStatus] is called on the
+     * main thread with a short human-readable line for each state change;
+     * on success this also launches the installer. Caller should have
+     * already checked [hasInstallPermission].
      */
-    fun downloadAndInstall(context: Context, url: String) {
+    fun downloadAndInstall(context: Context, url: String, onStatus: (String) -> Unit = {}) {
         val appContext = context.applicationContext
-        File(appContext.getExternalFilesDir(null), FILE_NAME).delete() // drop any stale previous download
+        val destFile = File(appContext.getExternalFilesDir(null), FILE_NAME)
+        destFile.delete() // drop any stale previous download
 
         val request = DownloadManager.Request(Uri.parse(url))
             .setTitle("vehplayer update")
@@ -50,15 +57,60 @@ object ApkInstaller {
 
         val manager = appContext.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
         val downloadId = manager.enqueue(request)
+        val handler = Handler(Looper.getMainLooper())
+
+        // Progress polling and the completion broadcast can both fire the
+        // final state; guard against reporting it (and launching the
+        // installer) twice.
+        var finished = false
+
+        fun finish(success: Boolean, message: String) {
+            if (finished) return
+            finished = true
+            onStatus(message)
+            if (success) promptInstall(appContext, destFile, onStatus)
+        }
+
+        val poll = object : Runnable {
+            override fun run() {
+                if (finished) return
+                val info = queryStatus(manager, downloadId)
+                when (info?.status) {
+                    DownloadManager.STATUS_RUNNING -> {
+                        onStatus(
+                            if (info.totalBytes > 0) {
+                                "Downloading update... ${(info.bytesSoFar * 100 / info.totalBytes)}%"
+                            } else {
+                                "Downloading update..."
+                            },
+                        )
+                        handler.postDelayed(this, POLL_INTERVAL_MS)
+                    }
+                    DownloadManager.STATUS_PENDING -> {
+                        onStatus("Download queued...")
+                        handler.postDelayed(this, POLL_INTERVAL_MS)
+                    }
+                    DownloadManager.STATUS_SUCCESSFUL -> finish(true, "Download complete, opening installer...")
+                    DownloadManager.STATUS_FAILED -> {
+                        Log.w(TAG, "update download failed, reason=${info.reason}")
+                        finish(false, "Download failed. Check your connection and try again.")
+                    }
+                    else -> handler.postDelayed(this, POLL_INTERVAL_MS)
+                }
+            }
+        }
+        handler.post(poll)
 
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(ctx: Context, intent: Intent) {
                 if (intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1) != downloadId) return
                 appContext.unregisterReceiver(this)
-                if (downloadSucceeded(manager, downloadId)) {
-                    promptInstall(appContext, File(appContext.getExternalFilesDir(null), FILE_NAME))
+                val info = queryStatus(manager, downloadId)
+                if (info?.status == DownloadManager.STATUS_SUCCESSFUL) {
+                    finish(true, "Download complete, opening installer...")
                 } else {
-                    Log.w(TAG, "update download failed, downloadId=$downloadId")
+                    Log.w(TAG, "update download finished but not successful, reason=${info?.reason}")
+                    finish(false, "Download failed. Check your connection and try again.")
                 }
             }
         }
@@ -71,18 +123,25 @@ object ApkInstaller {
         }
     }
 
-    private fun downloadSucceeded(manager: DownloadManager, downloadId: Long): Boolean {
+    private data class DownloadInfo(val status: Int, val bytesSoFar: Long, val totalBytes: Long, val reason: Int)
+
+    private fun queryStatus(manager: DownloadManager, downloadId: Long): DownloadInfo? {
         val cursor: Cursor = manager.query(DownloadManager.Query().setFilterById(downloadId))
         cursor.use {
-            if (!it.moveToFirst()) return false
-            val status = it.getInt(it.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
-            return status == DownloadManager.STATUS_SUCCESSFUL
+            if (!it.moveToFirst()) return null
+            return DownloadInfo(
+                status = it.getInt(it.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS)),
+                bytesSoFar = it.getLong(it.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR)),
+                totalBytes = it.getLong(it.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES)),
+                reason = it.getInt(it.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON)),
+            )
         }
     }
 
-    private fun promptInstall(context: Context, apkFile: File) {
+    private fun promptInstall(context: Context, apkFile: File, onStatus: (String) -> Unit) {
         if (!apkFile.exists()) {
             Log.w(TAG, "download reported success but file missing at ${apkFile.path}")
+            onStatus("Download finished but the file is missing. Try again.")
             return
         }
         val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", apkFile)
