@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>vehplayer S2 probe</title>
+<style>
+  body { font: 14px/1.4 monospace; background:#111; color:#eee; padding:16px; }
+  h1 { font-size:16px; margin:0 0 12px; }
+  table { border-collapse: collapse; width:100%; }
+  td { padding:4px 8px; border-bottom:1px solid #333; vertical-align: top; }
+  .ok { color:#7fd17f; } .no { color:#e07a7a; } .warn { color:#e0c37a; }
+  #touchlog { height:80px; overflow:auto; background:#000; padding:6px; font-size:12px; }
+  #wsBox input { width:220px; }
+  button { padding:6px 10px; }
+</style>
+</head>
+<body>
+<h1>vehplayer S2 browser capability probe (ARCHITECTURE.md §8)</h1>
+<p>Static page, no dependencies. Load this on the car's address (from the S1 probe /
+MainActivity screen) or straight from a laptop for a baseline comparison. Every row here
+maps to an evidence-tag claim in ARCHITECTURE.md, this is what turns REPORTED/ASSUMED into
+MEASURED.</p>
+
+<table id="results"></table>
+
+<h1 style="margin-top:20px">Touch event fidelity</h1>
+<p>Touch/drag on the box below. Logs pointerType, pressure, and event rate.</p>
+<div id="touchbox" style="height:60px;background:#222;border:1px dashed #555;"></div>
+<div id="touchlog"></div>
+
+<h1 style="margin-top:20px">rAF / canvas timing</h1>
+<canvas id="cv" width="200" height="60" style="background:#000"></canvas>
+<div id="rafstats"></div>
+
+<h1 style="margin-top:20px">WebSocket round trip (optional)</h1>
+<div id="wsBox">
+  <input id="wsUrl" placeholder="ws://[phone-address]:PORT/probe" />
+  <button id="wsBtn">connect + ping</button>
+  <div id="wsResult"></div>
+</div>
+
+<script>
+const results = document.getElementById('results');
+function row(label, ok, detail) {
+  const tr = document.createElement('tr');
+  const cls = ok === true ? 'ok' : ok === false ? 'no' : 'warn';
+  const mark = ok === true ? 'YES' : ok === false ? 'NO' : '?';
+  tr.innerHTML = `<td>${label}</td><td class="${cls}">${mark}</td><td>${detail || ''}</td>`;
+  results.appendChild(tr);
+}
+
+// --- UA / engine ---
+row('User agent', null, navigator.userAgent);
+row('Screen viewport', null, `${window.innerWidth}x${window.innerHeight} @ dpr ${window.devicePixelRatio}`);
+
+// --- WebCodecs ---
+const hasWebCodecs = 'VideoDecoder' in window;
+row('WebCodecs (VideoDecoder present)', hasWebCodecs);
+if (hasWebCodecs) {
+  // Real decode-capability check needs a config; report support for the
+  // baseline H.264 profile the encoder will actually emit (ARCHITECTURE.md §2).
+  VideoDecoder.isConfigSupported({ codec: 'avc1.42E01E' })
+    .then(s => row('  H.264 Baseline (avc1.42E01E) decode support', s.supported))
+    .catch(e => row('  H.264 Baseline decode support', false, String(e)));
+} else {
+  row('  H.264 Baseline decode support', null, 'skipped, no WebCodecs');
+}
+
+// --- MSE fallback ---
+const hasMSE = 'MediaSource' in window;
+row('MediaSource Extensions present', hasMSE);
+if (hasMSE) {
+  const mime = 'video/mp4; codecs="avc1.42E01E"';
+  row('  fMP4 H.264 Baseline isTypeSupported', MediaSource.isTypeSupported(mime), mime);
+}
+
+// --- WebSocket ---
+row('WebSocket present', 'WebSocket' in window);
+
+// --- Autoplay / AudioContext ---
+row('AudioWorklet present', 'AudioWorkletNode' in window);
+try {
+  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+  row('AudioContext initial state', null, ctx.state + ' (expect "suspended" until a user gesture, Foundation Route B)');
+} catch (e) {
+  row('AudioContext', false, String(e));
+}
+
+// --- Page visibility (reverse-gear suspend/resume, Foundation §7 lifecycle) ---
+row('document.visibilityState', null, document.visibilityState);
+document.addEventListener('visibilitychange', () => {
+  console.log('[S2] visibilitychange ->', document.visibilityState);
+});
+
+// --- Touch fidelity ---
+const touchbox = document.getElementById('touchbox');
+const touchlog = document.getElementById('touchlog');
+let touchEvents = 0, lastT = performance.now();
+function logTouch(e) {
+  touchEvents++;
+  const now = performance.now();
+  const dt = (now - lastT).toFixed(1);
+  lastT = now;
+  const line = document.createElement('div');
+  line.textContent = `#${touchEvents} ${e.type} pointerType=${e.pointerType} pressure=${e.pressure?.toFixed(2)} dt=${dt}ms`;
+  touchlog.prepend(line);
+}
+['pointerdown','pointermove','pointerup'].forEach(ev =>
+  touchbox.addEventListener(ev, logTouch));
+
+// --- rAF / canvas timing ---
+const cv = document.getElementById('cv');
+const ctx2d = cv.getContext('2d');
+const rafstats = document.getElementById('rafstats');
+let frames = 0, start = performance.now(), lastFrame = start, jitterMax = 0;
+function tick(t) {
+  frames++;
+  const dt = t - lastFrame;
+  lastFrame = t;
+  jitterMax = Math.max(jitterMax, Math.abs(dt - 16.7));
+  ctx2d.fillStyle = '#000'; ctx2d.fillRect(0,0,200,60);
+  ctx2d.fillStyle = '#7fd17f';
+  ctx2d.fillRect((frames % 200), 20, 4, 20);
+  if (t - start < 5000) {
+    requestAnimationFrame(tick);
+  } else {
+    const fps = (frames / ((t - start) / 1000)).toFixed(1);
+    rafstats.textContent = `${frames} frames in 5s, avg ${fps} fps, max frame jitter ${jitterMax.toFixed(1)}ms`;
+  }
+}
+requestAnimationFrame(tick);
+
+// --- Optional WS round trip against the phone ---
+document.getElementById('wsBtn').addEventListener('click', () => {
+  const url = document.getElementById('wsUrl').value.trim();
+  const out = document.getElementById('wsResult');
+  if (!url) { out.textContent = 'enter a ws:// url first'; return; }
+  out.textContent = 'connecting...';
+  const t0 = performance.now();
+  let ws;
+  try { ws = new WebSocket(url); } catch (e) { out.textContent = 'error: ' + e; return; }
+  ws.onopen = () => {
+    const connectMs = (performance.now() - t0).toFixed(1);
+    out.textContent = `connected in ${connectMs}ms, sending ping...`;
+    ws.send(JSON.stringify({ type: 'ping', t: performance.now() }));
+  };
+  ws.onmessage = (msg) => {
+    out.textContent = `reply: ${msg.data}`;
+  };
+  ws.onerror = (e) => { out.textContent = 'ws error, see console'; console.error(e); };
+  ws.onclose = () => { out.textContent += ' (closed)'; };
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,20 @@
+{
+  "name": "vehplayer-webclient",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Car-side client: WebCodecs/MSE video, AudioWorklet audio, binary input channel. Sender-agnostic (Foundation \u00a76). Not the probe (see webclient/probe/), this is the real Gate-2/3 client.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "harness": "node harness/fakeSender.mjs"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4",
+    "vite": "^5.4.0",
+    "ws": "^8.18.0",
+    "@types/ws": "^8.5.12",
+    "@types/node": "^22.5.0"
+  }
+}
