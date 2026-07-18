@@ -2,10 +2,56 @@
 
 > For Claude Code, running locally with the real Android SDK + full internet
 > access. Paste this alongside `VEPLA_Foundation.md`, `ARCHITECTURE.md`, and
-> `GROWTH_SAAS.md` as project context. Two sessions in now: session 1 (chat
+> `GROWTH_SAAS.md` as project context. Three sessions in now: session 1 (chat
 > sandbox, no Android SDK) built the Gate-2 pipeline blind. Session 2 (Claude
 > Code, real SDK at `/mnt/DEV/Android/Sdk`, real emulator) compiled it,
 > fixed what broke, and smoke-tested the app end to end on a real emulator.
+> Session 3 added a cable-free update pipeline (GitHub Releases + in-app
+> checker) and found `veh.modev.be` (the deployed webclient CDN) is
+> misconfigured, see "Blocked on the user" below.
+
+## Cable-free update pipeline (session 3)
+No Play Store, so no silent auto-update, Android always requires one install
+tap for a sideloaded app. What this gets you instead: publish from anywhere
+with `gh release create build-<N> <apk>#vehplayer-debug.apk --repo
+mounssif/vehplayer` (tag must be `build-<versionCode>`, asset must be named
+exactly `vehplayer-debug.apk`, `UpdateChecker.kt` parses both), and the app
+finds it over the network on next launch, no USB/phone<->laptop transfer.
+Build with `./gradlew assembleDebug -PvehplayerVersionCode=N
+-PvehplayerVersionName=...` first, bump N each time. Verified end to end on
+the emulator this session: banner appeared, tap opened Chrome to the correct
+`github.com/.../releases/download/...` URL. `android/app/debug.keystore` is
+now committed and pinned in `signingConfigs` specifically so this works, a
+build signed with a different (e.g. freshly-generated CI) keystore would
+fail to install as an update over the existing app.
+
+## Blocked on the user (needs Cloudflare dashboard access or a token with more scope)
+- **`veh.modev.be` is broken right now**: confirmed both by curl and by the
+  user opening it on their phone and in the Tesla browser (blank white
+  page). It's serving the raw, unbuilt `webclient/` source
+  (`/src/main.ts` comes back as `content-type: video/mp2t`, browsers can't
+  execute that) instead of `webclient/dist/` (the `npm run build` output).
+  Fix is in the Cloudflare Pages project's build settings: build command
+  `npm run build`, output directory `dist`, root directory `webclient`. The
+  API token available this session only had Zone(DNS) permission on
+  `modev.be`, not Pages/Workers/KV, so this couldn't be fixed directly.
+  `HttpAssetServer.kt`'s `/go` already redirects to `https://veh.modev.be`
+  as of this session (for CDN-delivered webclient updates without a new
+  APK) -- **do not tell the user to test in the Tesla again until this is
+  confirmed fixed**, right now that redirect points at a broken page.
+- **`cloud/` Worker still isn't deployed** (KV namespace IDs still
+  `REPLACE_ME`), same permission gap. Not urgent, Gate 5 scope.
+- A `cloudflared` quick tunnel (trycloudflare.com) was tried this session
+  for live request capture from the Tesla and was unreliable in this
+  environment (registered successfully but never actually routed traffic
+  server-side, tested with 3 separate tunnel instances). Don't retry that
+  approach without a reason to think it'll behave differently; if live
+  request capture is needed again, prefer adding a small POST-on-load beacon
+  to the actual webclient page reporting to a deployed cloud/ Worker route
+  once that's unblocked, over an ad hoc tunnel.
+- Note: the CF API token given this session was described as temporary and
+  will be rotated by the user; don't assume `~/.config/vehplayer/cloudflare.env`
+  on this machine still has a valid one in a future session, verify first.
 
 ## What's real and verified
 
