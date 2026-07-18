@@ -7,8 +7,9 @@
 > Code, real SDK at `/mnt/DEV/Android/Sdk`, real emulator) compiled it,
 > fixed what broke, and smoke-tested the app end to end on a real emulator.
 > Session 3 added a cable-free update pipeline (GitHub Releases + in-app
-> checker) and found `veh.modev.be` (the deployed webclient CDN) is
-> misconfigured, see "Blocked on the user" below.
+> checker) and fixed `veh.modev.be` (the deployed webclient CDN), which was
+> serving raw unbuilt source. **The car browser has not actually been tested
+> against it yet** (only curl-verified), that's the very next thing to do.
 
 ## Cable-free update pipeline (session 3)
 No Play Store, so no silent auto-update, Android always requires one install
@@ -25,22 +26,36 @@ now committed and pinned in `signingConfigs` specifically so this works, a
 build signed with a different (e.g. freshly-generated CI) keystore would
 fail to install as an update over the existing app.
 
-## Blocked on the user (needs Cloudflare dashboard access or a token with more scope)
-- **`veh.modev.be` is broken right now**: confirmed both by curl and by the
-  user opening it on their phone and in the Tesla browser (blank white
-  page). It's serving the raw, unbuilt `webclient/` source
-  (`/src/main.ts` comes back as `content-type: video/mp2t`, browsers can't
-  execute that) instead of `webclient/dist/` (the `npm run build` output).
-  Fix is in the Cloudflare Pages project's build settings: build command
-  `npm run build`, output directory `dist`, root directory `webclient`. The
-  API token available this session only had Zone(DNS) permission on
-  `modev.be`, not Pages/Workers/KV, so this couldn't be fixed directly.
-  `HttpAssetServer.kt`'s `/go` already redirects to `https://veh.modev.be`
-  as of this session (for CDN-delivered webclient updates without a new
-  APK) -- **do not tell the user to test in the Tesla again until this is
-  confirmed fixed**, right now that redirect points at a broken page.
-- **`cloud/` Worker still isn't deployed** (KV namespace IDs still
-  `REPLACE_ME`), same permission gap. Not urgent, Gate 5 scope.
+## veh.modev.be (fixed this session, but re-verify before trusting it)
+It's a Cloudflare Workers **static-assets deployment** (name `vehplayer`,
+account `757744f732aa0682e6bb0dda487ba082`), not Pages - `pages/projects`
+comes back empty for this account, don't waste time looking there.
+`veh.modev.be` is a Workers custom domain bound to it (DNS is an
+auto-managed, read-only AAAA `100::` record, don't try to edit DNS
+directly). It had been deployed once via the dashboard's drag-and-drop
+flow with no build step, so it was serving raw `webclient/src/main.ts` as
+literal TypeScript (confirmed broken by the user on both a phone browser
+and the Tesla browser: blank page). Fixed by adding `webclient/wrangler.toml`
+(`name = "vehplayer"`, `[assets] directory = "./dist"`) and running
+`npm run build && npx wrangler deploy` from `webclient/` with
+`CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` set. Re-deploy the same way
+any time `webclient/` changes and should reach the car; there's no CI for
+this yet, it's a manual step (deliberately, the user asked to avoid GitHub
+Actions where avoidable and do things directly instead).
+**Verified only via curl this session (correct content-type, correct hashed
+asset refs) - never actually loaded in the Tesla or a real phone browser
+post-fix.** `HttpAssetServer.kt`'s `/go` redirects to `https://veh.modev.be`
+now (CDN-delivered webclient updates without a new APK). Confirm a real
+`/go` -> Tesla -> connect round trip before assuming this works.
+
+## Still not deployed
+- **`cloud/` Worker** (KV namespace IDs still `REPLACE_ME`): the session-3
+  API token had Workers Scripts:Edit by the end but not Workers KV
+  Storage:Edit, so the namespaces still don't exist. Not urgent, Gate 5
+  scope. If picking this up, same account, same token-scope pattern as
+  above (ask for KV Storage:Edit specifically, Scripts:Edit alone won't
+  cover it, confirmed by an empty-with-auth-error response from
+  `storage/kv/namespaces` this session).
 - A `cloudflared` quick tunnel (trycloudflare.com) was tried this session
   for live request capture from the Tesla and was unreliable in this
   environment (registered successfully but never actually routed traffic
