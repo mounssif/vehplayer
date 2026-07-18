@@ -12,6 +12,7 @@ import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import app.vehplayer.android.capture.CaptureService
+import app.vehplayer.android.dashboard.CarDashboardActivity
 import app.vehplayer.android.input.VehplayerAccessibilityService
 import app.vehplayer.android.net.ReachabilityDecision
 import app.vehplayer.android.net.ReachabilityLadder
@@ -67,13 +68,21 @@ class MainActivity : AppCompatActivity() {
      * server (owned there now, not here - see CaptureService.httpServerPort's
      * doc comment for why) resolves its port asynchronously as part of that
      * service's own startup. Poll briefly rather than guessing a port.
+     *
+     * Once the URL is known, hands off to CarDashboardActivity - mirror mode
+     * casts whatever's in the foreground, so that dashboard (not this
+     * settings screen) is deliberately what the car ends up showing.
      */
     private fun awaitHttpServerAndShowUrl(attempt: Int = 0) {
         val port = CaptureService.instance?.httpServerPort
         if (port != null) {
             val host = localIpAddress()
-            if (host != null) {
-                setStatus("Streaming started! Open this address in your car's browser:\n\nhttp://$host:$port/go")
+            val url = if (host != null) "http://$host:$port/go" else null
+            if (url != null) {
+                startActivity(
+                    Intent(this, CarDashboardActivity::class.java)
+                        .putExtra(CarDashboardActivity.EXTRA_CONNECTION_URL, url),
+                )
             } else {
                 setStatus("Streaming started, but couldn't detect your hotspot's address. Turn on your phone's hotspot and tap Start again.")
             }

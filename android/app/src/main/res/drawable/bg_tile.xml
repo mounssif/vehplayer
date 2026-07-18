@@ -1,0 +1,4 @@
+<ripple xmlns:android="http://schemas.android.com/apk/res/android"
+    android:color="@color/dash_accent_amber">
+    <item android:drawable="@drawable/bg_tile_shape" />
+</ripple>

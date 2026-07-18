@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Car dashboard palette (CarDashboardActivity). Warm dark, not the
+         cool blue-grey every Android Auto/CarPlay clone reaches for -
+         deliberately closer to a dashboard's leather-and-dim-instrument-
+         light feeling than to "generic EV tech blue". -->
+    <color name="dash_bg">#14120F</color>
+    <color name="dash_surface">#211E19</color>
+    <color name="dash_surface_elevated">#2B2620</color>
+    <color name="dash_border">#37312A</color>
+    <color name="dash_text_primary">#F5F0E6</color>
+    <color name="dash_text_muted">#948E82</color>
+    <color name="dash_accent_amber">#F2A93B</color>
+    <color name="dash_accent_teal">#4FB0A5</color>
+</resources>

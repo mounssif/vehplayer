@@ -50,6 +50,20 @@
             </intent-filter>
         </activity>
 
+        <!-- The car-facing home screen (ARCHITECTURE.md casting model:
+             mirror mode shows whatever's in the foreground on the phone,
+             this is what's deliberately put there once streaming starts,
+             instead of MainActivity's own setup screen). Landscape-locked
+             to match a car's screen; screenOrientation is enough here since
+             this activity is only ever reached after the car viewport is
+             already known to be landscape. -->
+        <activity
+            android:name="app.vehplayer.android.dashboard.CarDashboardActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:screenOrientation="landscape"
+            android:theme="@style/Theme.AppCompat.NoActionBar" />
+
         <!-- Owns MediaProjection capture (video AND audio, ARCHITECTURE.md §1/§2/§3)
              plus the WS server. Combined foregroundServiceType is deliberate:
              AudioPlaybackCaptureConfiguration needs the live MediaProjection

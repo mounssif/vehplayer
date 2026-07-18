@@ -84,6 +84,15 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("androidx.lifecycle:lifecycle-service:2.8.4")
 
+    // CarDashboardActivity's layout (hero now-playing card + tile column,
+    // percentage-based side-by-side sizing) needs real constraint chains,
+    // plain LinearLayout/nesting would fight the design instead of expressing it.
+    implementation("androidx.constraintlayout:constraintlayout:2.1.4")
+
+    // Dominant-color extraction from album art for the now-playing card's
+    // ambient tint (Palette API), see CarDashboardActivity.
+    implementation("androidx.palette:palette-ktx:1.0.0")
+
     // Local-only WS server (ARCHITECTURE.md §1/§4). Hand-rolling a compliant
     // RFC 6455 server is a bad use of a Gate-2 session; this is a small,
     // widely used, dependency-light server implementation. TODO(claude-code):
