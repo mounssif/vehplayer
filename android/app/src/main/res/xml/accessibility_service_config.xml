@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Deliberately minimal capability set: only what dispatchGesture needs.
+  Foundation §6/§8 flags that Google Play polices AccessibilityService use
+  closely and that the policy justification needs preparing early; keeping
+  this config narrow (no canRetrieveWindowContent, no event types we don't
+  act on) is part of that justification, not just tidiness.
+  TODO(claude-code): confirm at Gate 4 whether canPerformGestures is
+  sufficient on its own or whether a real device requires additional flags
+  for VirtualDisplay-targeted gestures once Power Mode is implemented.
+-->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeAllMask"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:canPerformGestures="true"
+    android:canRetrieveWindowContent="false"
+    android:notificationTimeout="100"
+    android:description="@string/accessibility_service_description" />

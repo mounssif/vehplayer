@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Working codename, not the final product name (Foundation §1 TODO). -->
+    <string name="app_name">vehplayer (dev)</string>
+    <string name="accessibility_service_description">Lets vehplayer relay touches from your car screen back to your phone. Only active while a streaming session is running.</string>
+</resources>

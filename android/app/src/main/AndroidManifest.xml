@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Reachability probe + always-needed -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+
+    <!-- Screen capture pipeline (ARCHITECTURE.md §2) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Audio capture (ARCHITECTURE.md §3). RECORD_AUDIO is required even for
+         AudioPlaybackCapture on API 29+, not just for the mic. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+
+    <!-- Input injection, free tier default (Foundation §6b item 2) -->
+    <uses-permission android:name="android.permission.BIND_ACCESSIBILITY_SERVICE"
+        tools:ignore="ProtectedPermissions" />
+
+    <!-- Reachability tiers (b)/(c) (ARCHITECTURE.md §7). Declared now even though
+         VpnService isn't implemented yet (S1_reachability.md), so the manifest
+         doesn't need touching again when it lands. -->
+    <uses-permission android:name="android.permission.BIND_VPN_SERVICE"
+        tools:ignore="ProtectedPermissions" />
+
+    <application
+        android:allowBackup="false"
+        android:label="@string/app_name"
+        android:theme="@style/Theme.AppCompat.Light.NoActionBar">
+
+        <activity
+            android:name="app.vehplayer.android.MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Owns MediaProjection capture (video AND audio, ARCHITECTURE.md §1/§2/§3)
+             plus the WS server. Combined foregroundServiceType is deliberate:
+             AudioPlaybackCaptureConfiguration needs the live MediaProjection
+             object this service already holds for video, splitting audio into
+             its own service would mean re-deriving or passing that object
+             across a service boundary for no real benefit at this scale. -->
+        <service
+            android:name="app.vehplayer.android.capture.CaptureService"
+            android:exported="false"
+            android:foregroundServiceType="mediaProjection|microphone" />
+
+        <service
+            android:name="app.vehplayer.android.input.VehplayerAccessibilityService"
+            android:exported="false"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
+
+        <!-- Reachability tier (b)/(c) fallback (ARCHITECTURE.md §7). Stubbed,
+             see VpnReachabilityService.kt, not wired into the fallback ladder
+             yet, S1 spike still needs to calibrate which tiers actually get
+             used in practice. -->
+        <service
+            android:name="app.vehplayer.android.net.VpnReachabilityService"
+            android:exported="false"
+            android:permission="android.permission.BIND_VPN_SERVICE">
+            <intent-filter>
+                <action android:name="android.net.VpnService" />
+            </intent-filter>
+        </service>
+    </application>
+</manifest>
+
