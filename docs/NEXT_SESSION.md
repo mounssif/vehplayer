@@ -2,14 +2,52 @@
 
 > For Claude Code, running locally with the real Android SDK + full internet
 > access. Paste this alongside `VEPLA_Foundation.md`, `ARCHITECTURE.md`, and
-> `GROWTH_SAAS.md` as project context. Three sessions in now: session 1 (chat
+> `GROWTH_SAAS.md` as project context. Four sessions in now: session 1 (chat
 > sandbox, no Android SDK) built the Gate-2 pipeline blind. Session 2 (Claude
 > Code, real SDK at `/mnt/DEV/Android/Sdk`, real emulator) compiled it,
 > fixed what broke, and smoke-tested the app end to end on a real emulator.
 > Session 3 added a cable-free update pipeline (GitHub Releases + in-app
 > checker) and fixed `veh.modev.be` (the deployed webclient CDN), which was
-> serving raw unbuilt source. **The car browser has not actually been tested
-> against it yet** (only curl-verified), that's the very next thing to do.
+> serving raw unbuilt source. Session 4 fixed two real crashes on stream
+> start (found from a user's screen recording, not from emulator testing -
+> the emulator alone had missed both) and a versionCode publishing bug that
+> made the update loop never terminate. **The car browser has still not
+> actually been tested against veh.modev.be** (only curl-verified), that's
+> still the next real-hardware thing to do.
+
+## Two real crash fixes (session 4) - read this before touching CaptureService/H264Encoder again
+Both found from a user-provided screen recording of a real device crash-loop
+("vehplayer stopt steeds"), then reproduced deterministically on the emulator
+via a scripted uiautomator flow (enable accessibility -> Start -> VPN
+consent -> Share entire screen), not by guessing:
+
+1. **`CaptureService.onStartCommand`**: `startForeground()` used the
+   manifest's full `mediaProjection|microphone` type unconditionally. On
+   API 34+, the `microphone` type requires RECORD_AUDIO to be an actively
+   *granted* runtime permission, not just manifest-declared - this app
+   never requests it (Route B/`lowLatencyAudio` is hardcoded `false`, not
+   wired to any UI control), so every single stream start crashed with a
+   SecurityException before MediaProjection was even touched. Fixed:
+   `startForeground()` now passes only `FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION`
+   unless `lowLatencyAudio` is actually true. **If Route B ever gets wired
+   to a real UI control, a RECORD_AUDIO runtime permission request needs to
+   be added alongside it** - this fix doesn't add one, it just stops
+   claiming the microphone type when it isn't used.
+2. **`H264Encoder.start()`**: `MediaCodec.configure()` crashed with a bare
+   `IllegalArgumentException` (no detail message) immediately after fix #1
+   stopped masking it. Bisected key-by-key on the emulator:
+   `KEY_PREPEND_HEADER_TO_SYNC_FRAMES` and `KEY_INTRA_REFRESH_PERIOD` both
+   independently crash `configure()` on this device's encoder *even though*
+   `MediaCodecInfo.CodecCapabilities` reports them supported - capability
+   reporting isn't trustworthy enough to gate on alone. Fixed: `start()` now
+   tries the full ARCHITECTURE.md §2 format first, catches
+   `IllegalArgumentException`, and retries with a minimal fallback format
+   (color format/bitrate/framerate/plain I-frame-interval only) rather than
+   crash-looping or permanently disabling these features for every device.
+   **This was only tested against one encoder** (the Android 16 emulator's
+   software AVC encoder) - the fallback path is what makes this safe on
+   other devices, not a claim that the two flagged keys are broken
+   everywhere; a real MCU2/MCU3-paired phone might accept them fine.
 
 ## Cable-free update pipeline (session 3)
 No Play Store, so no silent auto-update, Android always requires one install
@@ -20,6 +58,21 @@ exactly `vehplayer-debug.apk`, `UpdateChecker.kt` parses both), and the app
 finds and installs it over the network on next launch, no USB/phone<->laptop
 transfer. Build with `./gradlew assembleDebug -PvehplayerVersionCode=N
 -PvehplayerVersionName=...` first, bump N each time.
+
+**Real incident this session, avoid repeating it**: build-5 and build-6 got
+published with the `-P` flags forgotten on the *final* rebuild right before
+packaging (an earlier versioned build had been used for emulator testing,
+then a plain unversioned `./gradlew assembleDebug` ran again "just to be
+sure" and THAT default-versionCode=1 artifact is what got copied and
+published). Both releases silently shipped versionCode=1 under a `build-5`/
+`build-6` tag, so `UpdateChecker` compared "6 available" against an
+installed app that was *actually* also versionCode 1 forever - the update
+button worked, the install genuinely succeeded, and the banner never went
+away, because the newly-installed APK still self-reported as build 1.
+**Always run `aapt dump badging <apk> | head -1` on the exact file about to
+be uploaded and confirm the versionCode before `gh release create`** - that
+would have caught it immediately, and now this is what build-7 onward
+actually does.
 
 `ApkInstaller.kt` downloads the APK in-app (DownloadManager, with live
 percentage progress polled into the status text, this went through two
@@ -51,6 +104,15 @@ session was asked to build), so there isn't a code fix that makes this go
 away without cutting a real feature. Do not attempt to suppress or evade
 the Play Protect prompt, that's a user security decision to make on their
 own device, not something to engineer around.
+
+**Correction, session 4**: a user-reported "vehplayer stopt steeds"
+crash-loop was initially assumed to be this Play Protect prompt (plausible
+from a screenshot alone). A screen recording proved that wrong - the app
+actually crashed for the two real reasons in "Two real crash fixes" above,
+nothing to do with Play Protect at all. Lesson: don't diagnose a crash from
+a single screenshot when a fuller repro (video, or better, logcat) is
+available; the two are easy to conflate since both can show up around the
+same install/update flow.
 
 ## veh.modev.be (fixed this session, but re-verify before trusting it)
 It's a Cloudflare Workers **static-assets deployment** (name `vehplayer`,
