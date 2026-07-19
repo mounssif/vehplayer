@@ -104,6 +104,10 @@ class CaptureService : Service() {
     val probeHitCounts: Pair<Int, Int>
         get() = (httpServer?.requestCount ?: 0) to (probeStunServer?.answeredCount ?: 0)
 
+    /** Last JSON report POSTed by the in-car /diag page, or null. */
+    val lastDiagReport: String?
+        get() = httpServer?.lastDiagReport
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {

@@ -109,8 +109,14 @@ class MainActivity : AppCompatActivity() {
                         .putExtra(CarDashboardActivity.EXTRA_HOTSPOT_IP, hotspot?.first)
                         .putExtra(CarDashboardActivity.EXTRA_HOTSPOT_IFACE, hotspot?.second)
                         .putExtra(
+                            // Phone-served http diag page: typing/scanning it
+                            // is simultaneously the decisive TCP test AND the
+                            // full same-origin metric suite (fetch/WS/STUN,
+                            // no mixed-content block) AND it POSTs results
+                            // back to the phone. Replaces the cloud https
+                            // probe as the primary in-car test (session 9).
                             CarDashboardActivity.EXTRA_PROBE_URL,
-                            hotspot?.let { "https://veh.modev.be/probe-webrtc?ip=${it.first}&port=$port" },
+                            hotspot?.let { "http://${formatHostForUrl(it.first)}:$port/diag" },
                         ),
                 )
             } else {

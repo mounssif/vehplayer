@@ -471,6 +471,66 @@ drop that closes the direct-RFC1918 route and promotes tier (a) IPv6
 GUA to plan A - founder APN IPv4/IPv6 check becomes the gating
 question).
 
+### Session 9, ~01:44: counter stayed 0 in the car - reframes the suspect toward the PHONE/AP firewall, not Tesla
+
+Founder retested /go in the car on the correct AP IP (10.118.219.223)
+AND port, plus 8080 for safety. Result photographed: the connect-info
+counter stayed **HTTP 0x / STUN 0x**. The counter mechanism is verified
+working (emulator hit it 4x via adb-forwarded curls this session), so
+0 in the car means **the phone's HTTP server never saw the connection**
+- the ERR_CONNECTION_REFUSED RST was synthesized *before* any packet
+reached the app.
+
+Combined with the earlier failure that never got its due weight: the
+**home hotspot test also failed** (a laptop/second phone ON the hotspot
+could not reach the phone's AP IP either - session start note "thuistest
+zonder succes, nog steeds geen verbinding via hotspot ip"). A *non-Tesla*
+client on the same hotspot failing to reach the phone's own AP address
+points at the **Samsung/Android tethering firewall dropping inbound
+traffic to the phone's own hotspot IP**, a known Android behavior
+(tethering iptables permit client->internet and DHCP/DNS to the AP host,
+but often DROP client->AP-host service ports). If that is the cause it
+is PHONE-SIDE and Tesla is not the blocker at all - which also fits every
+prior symptom (UDP to public STUN works = client->internet forwarded;
+TCP to veh.modev.be works = same; but anything to 10.118.219.223 itself
+dies).
+
+**This is now the single most important thing to isolate, and it needs
+no car.** The new /diag page + counters do it: put a laptop or second
+phone on the hotspot and open `http://<phone-ap-ip>:<port>/diag`.
+- Counter moves / page loads -> the AP does NOT block client->AP-host,
+  so the car's failure is Tesla-specific (RFC1918 block) -> IPv6 (tier a)
+  becomes plan A, founder APN check gates it.
+- Counter still 0 / page won't load -> phone/AP firewall confirmed,
+  Tesla exonerated. Fix is phone-side: research Android tethering
+  iptables (the `iptables -t filter -L` / `ip rule` on the AP host), a
+  bind-address workaround, or driving the connection the other direction
+  (phone dials car - but car has no listener, so this needs the WebRTC
+  offer/answer rendezvous the docs already plan).
+
+### Tooling shipped this session for the above (build-23)
+
+- **Phone-served `/diag` page** (`webclient/public/diag.html`, bundled
+  into assets, served by HttpAssetServer): same-origin http, so its
+  fetch / WS / XHR / STUN rows all RUN (no mixed-content SKIP, unlike the
+  cloud https probe). Loading it at all proves TCP; it then measures
+  HTTP/WS/UDP to the phone and POSTs a JSON report to `/diag-report`.
+  Also captures read-only Chrome-140 metrics: Network Information API
+  (wifi/cellular, rtt, downlink), userAgentData high-entropy (model,
+  platform version, arch), getStats srflx detail, viewport/cpu/mem.
+- **New HttpAssetServer endpoints**: `/ping` (200 pong, cheap timing
+  target), `/diag-config` (JSON {wsPort, httpPort}), `POST /diag-report`
+  (stores the last report), `/diag` alias -> diag.html. All CORS-open.
+- **Cloud probe-webrtc.html** also now logs the same read-only metric
+  block on every run (Network Info, uaData, getStats).
+- **Connect-info overlay** now shows the last in-car /diag summary
+  (self/ping/ws/stun/rtc + Chromium version) so the founder reads the
+  car result on the phone with no photo. The in-car test URL the app
+  hands out is now `http://<ap-ip>:<port>/diag` (was the cloud probe).
+- All endpoints + counters + overlay summary MEASURED end to end on the
+  emulator this session (ping 200, config JSON, report POST -> ok,
+  summary rendered).
+
 ### Next run protocol (either home hotspot or car, 2 minutes)
 
 1. Update app (banner), Start, read the dashboard line: `hotspot <ip>

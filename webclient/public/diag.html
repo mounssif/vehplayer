@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>vehplayer in-car diagnostics</title>
+<!--
+  Phone-served, same-origin, http diagnostic page (docs/NEXT_SESSION.md
+  session 9). The whole point: it is served BY THE PHONE over http, so when
+  the car's browser loads http://<phone-ip>:<port>/diag the origin is the
+  phone's own http origin. That means fetch / WebSocket / XHR to the phone
+  are SAME-ORIGIN - no mixed-content block, no CORS - unlike the cloud
+  probe-webrtc page (https) where those rows always SKIP.
+
+  Loading this page AT ALL already proves TCP from the car reached the
+  phone. Everything below then measures how far the rest gets, and POSTs a
+  JSON report back to /diag-report so the phone's dashboard shows the result
+  with no photo and no adb.
+
+  Self-contained static file, bundled into the app's assets via the normal
+  webclient build (vite copies public/ into dist/, gradle copies dist/ into
+  assets/webclient/).
+-->
+<style>
+  :root { --bg:#14120F; --card:#211E19; --text:#F5F0E6; --muted:#948E82;
+          --ok:#5dbb63; --fail:#e0645c; --warn:#F2A93B; }
+  * { box-sizing:border-box; }
+  body { font-family:system-ui,sans-serif; background:var(--bg); color:var(--text);
+         margin:0; padding:16px; }
+  h1 { font-size:24px; margin:0 0 2px; }
+  .sub { color:var(--muted); margin:0 0 14px; font-size:14px; word-break:break-all; }
+  .row { background:var(--card); border-radius:12px; padding:12px 16px; margin-bottom:8px;
+         display:flex; align-items:center; gap:14px; }
+  .status { font-size:26px; font-weight:800; min-width:120px; text-align:center;
+            border-radius:9px; padding:6px 4px; background:#000; }
+  .PENDING { color:var(--muted); } .RUNNING { color:var(--warn); }
+  .PASS { color:var(--ok); } .FAIL { color:var(--fail); } .WARN,.SKIP { color:var(--warn); }
+  .label { font-size:18px; font-weight:600; }
+  .detail { color:var(--muted); font-size:14px; word-break:break-all; }
+  #log { font:11px/1.5 monospace; color:var(--muted); background:#000; border-radius:10px;
+         padding:10px; margin-top:14px; max-height:40vh; overflow:auto; white-space:pre-wrap; }
+  .big { font-size:20px; font-weight:800; padding:10px 14px; border-radius:10px;
+         margin-bottom:12px; text-align:center; }
+</style>
+</head>
+<body>
+<h1>vehplayer diagnostics</h1>
+<p class="sub" id="env"></p>
+<div id="verdict" class="big" style="background:#000;color:var(--warn)">running...</div>
+<div id="rows"></div>
+<div id="log"></div>
+
+<script>
+'use strict';
+const report = { startedAt: null, origin: location.origin, results: {}, metrics: {}, logLines: [] };
+const log = (m) => {
+  report.logLines.push(m);
+  const el = document.getElementById('log');
+  el.textContent += m + '\n';
+  el.scrollTop = el.scrollHeight;
+};
+
+const TESTS = [
+  ['self',   'This page loaded from the phone over http (TCP already proven)'],
+  ['config', 'Fetch /diag-config (same-origin http GET)'],
+  ['ping',   'Fetch /ping round trip (same-origin, timed)'],
+  ['xhr',    'XHR GET /ping (some engines differ from fetch)'],
+  ['ws',     'WebSocket to phone (ws://, same-origin - no mixed content here)'],
+  ['stun',   'UDP to phone STUN (stun:self:3478) - the direct-UDP question'],
+  ['rtc',    'WebRTC data channel loopback (in-page, sanity)'],
+];
+const rows = {};
+for (const [id, label] of TESTS) {
+  const div = document.createElement('div');
+  div.className = 'row';
+  div.innerHTML = `<div class="status PENDING" id="st_${id}">WAIT</div>
+    <div><div class="label">${label}</div><div class="detail" id="dt_${id}"></div></div>`;
+  document.getElementById('rows').appendChild(div);
+  rows[id] = div;
+}
+function setResult(id, status, detail) {
+  const st = document.getElementById('st_' + id);
+  st.textContent = status; st.className = 'status ' + status;
+  if (detail !== undefined) document.getElementById('dt_' + id).textContent = detail;
+  report.results[id] = { status, detail: detail || '' };
+  log(`${id}: ${status} ${detail || ''}`);
+}
+
+const host = location.hostname;
+const wsPortDefault = 8787;
+
+function metrics() {
+  const m = report.metrics;
+  m.ua = navigator.userAgent;
+  m.chromium = (navigator.userAgent.match(/Chrome\/(\d+\.[\d.]+)/) || [])[1] || null;
+  m.viewport = `${innerWidth}x${innerHeight}`;
+  m.dpr = devicePixelRatio;
+  m.screen = `${screen.width}x${screen.height}`;
+  m.online = navigator.onLine;
+  m.lang = navigator.language;
+  m.cpu = navigator.hardwareConcurrency || null;
+  m.deviceMemory = navigator.deviceMemory || null;
+  const c = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+  if (c) m.netinfo = { type: c.type, effectiveType: c.effectiveType, downlink: c.downlink, rtt: c.rtt, saveData: c.saveData };
+  log(`env: Chromium ${m.chromium} viewport ${m.viewport} dpr ${m.dpr} online ${m.online} cpu ${m.cpu}`);
+  if (m.netinfo) log(`netinfo: ${JSON.stringify(m.netinfo)}`);
+  const uad = navigator.userAgentData;
+  if (uad) {
+    return uad.getHighEntropyValues(['platformVersion', 'model', 'fullVersionList', 'architecture'])
+      .then(v => { m.uaData = { mobile: uad.mobile, platform: uad.platform, model: v.model,
+        platformVersion: v.platformVersion, architecture: v.architecture,
+        fullVersionList: v.fullVersionList }; log(`uaData: ${JSON.stringify(m.uaData)}`); })
+      .catch(() => {});
+  }
+  return Promise.resolve();
+}
+
+function testSelf() {
+  // Reaching this line means the HTML was served: TCP + HTTP from car to
+  // phone worked. That is itself the answer to session 9's ambiguous
+  // ERR_CONNECTION_REFUSED - here, it did NOT refuse.
+  setResult('self', 'PASS', `origin ${location.origin} - TCP+HTTP from the car reached the phone`);
+}
+
+let cfg = { wsPort: wsPortDefault, httpPort: location.port };
+function testConfig() {
+  return fetchTimed('/diag-config').then(({ ok, ms, body }) => {
+    if (ok && body) {
+      try { const j = JSON.parse(body); cfg = { ...cfg, ...j };
+        setResult('config', 'PASS', `wsPort=${cfg.wsPort} httpPort=${cfg.httpPort} in ${ms}ms`); return; }
+      catch (e) {}
+    }
+    setResult('config', 'WARN', `no/invalid config (${ms}ms) - using defaults ws=${cfg.wsPort}`);
+  }).catch(e => setResult('config', 'WARN', `config fetch failed: ${e} - using defaults`));
+}
+
+function fetchTimed(path) {
+  const t0 = performance.now();
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 6000);
+  return fetch(path, { signal: ctrl.signal, cache: 'no-store' })
+    .then(async r => { clearTimeout(timer);
+      return { ok: r.ok, status: r.status, ms: +(performance.now() - t0).toFixed(0), body: await r.text().catch(() => '') }; })
+    .catch(e => { clearTimeout(timer);
+      return { ok: false, ms: +(performance.now() - t0).toFixed(0), err: String(e) }; });
+}
+
+function testPing() {
+  return fetchTimed('/ping').then(r => {
+    setResult('ping', r.ok ? 'PASS' : 'FAIL',
+      r.ok ? `HTTP ${r.status} in ${r.ms}ms (body: ${(r.body || '').slice(0, 16)})`
+           : `${r.err || 'failed'} after ${r.ms}ms`);
+  });
+}
+
+function testXhr() {
+  return new Promise((resolve) => {
+    const t0 = performance.now();
+    const x = new XMLHttpRequest();
+    x.timeout = 6000;
+    x.onload = () => { setResult('xhr', 'PASS', `status ${x.status} in ${(performance.now()-t0).toFixed(0)}ms`); resolve(); };
+    x.onerror = () => { setResult('xhr', 'FAIL', `error after ${(performance.now()-t0).toFixed(0)}ms`); resolve(); };
+    x.ontimeout = () => { setResult('xhr', 'FAIL', 'timed out after 6s'); resolve(); };
+    try { x.open('GET', '/ping?x=1'); x.send(); }
+    catch (e) { setResult('xhr', 'FAIL', String(e)); resolve(); }
+  });
+}
+
+function testWs() {
+  return new Promise((resolve) => {
+    const url = `ws://${host}:${cfg.wsPort}/`;
+    setResult('ws', 'RUNNING', url);
+    const t0 = performance.now();
+    let ws;
+    try { ws = new WebSocket(url); } catch (e) { setResult('ws', 'FAIL', String(e)); return resolve(); }
+    const timer = setTimeout(() => { try { ws.close(); } catch(e){}
+      setResult('ws', 'FAIL', 'timed out after 6s (no open, no error)'); resolve(); }, 6000);
+    ws.onopen = () => { clearTimeout(timer);
+      setResult('ws', 'PASS', `connected in ${(performance.now()-t0).toFixed(0)}ms`); try { ws.close(); } catch(e){} resolve(); };
+    ws.onerror = () => { clearTimeout(timer);
+      setResult('ws', 'FAIL', `error after ${(performance.now()-t0).toFixed(0)}ms (refused/blocked)`); resolve(); };
+  });
+}
+
+function testStun() {
+  return new Promise((resolve) => {
+    const url = `stun:${host}:3478`;
+    setResult('stun', 'RUNNING', url);
+    const t0 = performance.now();
+    let pc;
+    try { pc = new RTCPeerConnection({ iceServers: [{ urls: url }] }); }
+    catch (e) { setResult('stun', 'FAIL', 'config rejected: ' + e); return resolve(); }
+    pc.createDataChannel('probe');
+    let done = false;
+    const finish = (ok, detail) => { if (done) return; done = true; try { pc.close(); } catch(e){}
+      setResult('stun', ok ? 'PASS' : 'FAIL', detail); resolve(); };
+    pc.onicecandidate = (e) => {
+      if (!e.candidate) return finish(false, 'gathering ended, no srflx');
+      log('stun cand: ' + e.candidate.candidate);
+      if (e.candidate.candidate.includes(' typ srflx '))
+        finish(true, `srflx in ${(performance.now()-t0).toFixed(0)}ms - direct UDP car->phone WORKS`);
+    };
+    pc.createOffer().then(o => pc.setLocalDescription(o)).catch(e => finish(false, String(e)));
+    setTimeout(() => finish(false, 'no srflx within 8s (UDP dropped car->phone, or STUN server down)'), 8000);
+  });
+}
+
+function testRtc() {
+  return new Promise((resolve) => {
+    const t0 = performance.now();
+    const a = new RTCPeerConnection(), b = new RTCPeerConnection();
+    const done = (ok, d) => { try { a.close(); b.close(); } catch(e){} setResult('rtc', ok ? 'PASS':'FAIL', d); resolve(); };
+    const timer = setTimeout(() => done(false, 'timed out 8s'), 8000);
+    a.onicecandidate = e => e.candidate && b.addIceCandidate(e.candidate).catch(()=>{});
+    b.onicecandidate = e => e.candidate && a.addIceCandidate(e.candidate).catch(()=>{});
+    const dc = a.createDataChannel('rt');
+    dc.onopen = () => dc.send('ping');
+    b.ondatachannel = e => e.channel.onmessage = m => e.channel.send(m.data === 'ping' ? 'pong' : m.data);
+    dc.onmessage = m => { if (m.data === 'pong') { clearTimeout(timer); done(true, `round trip ${(performance.now()-t0).toFixed(0)}ms`); } };
+    a.createOffer().then(o => a.setLocalDescription(o)).then(() => b.setRemoteDescription(a.localDescription))
+      .then(() => b.createAnswer()).then(ans => b.setLocalDescription(ans))
+      .then(() => a.setRemoteDescription(b.localDescription))
+      .catch(e => { clearTimeout(timer); done(false, String(e)); });
+  });
+}
+
+function verdict() {
+  const r = report.results;
+  const tcpOk = r.self?.status === 'PASS';
+  const httpOk = r.ping?.status === 'PASS';
+  const wsOk = r.ws?.status === 'PASS';
+  const udpOk = r.stun?.status === 'PASS';
+  const el = document.getElementById('verdict');
+  let text, color;
+  if (tcpOk && httpOk && udpOk) { text = 'GO: TCP + HTTP + UDP all reach the phone. Full transport works.'; color = 'var(--ok)'; }
+  else if (tcpOk && httpOk && !udpOk) { text = 'PARTIAL: TCP/HTTP work, UDP does NOT. WebRTC-over-UDP blocked; TCP transport (WS) is the path.'; color = 'var(--warn)'; }
+  else if (tcpOk && !httpOk) { text = 'ODD: page loaded but /ping failed - server mid-restart? rerun.'; color = 'var(--warn)'; }
+  else { text = 'unexpected state - read the rows'; color = 'var(--fail)'; }
+  el.textContent = text; el.style.color = color; el.style.background = '#000';
+  log('verdict: ' + text);
+}
+
+function postReport() {
+  report.finishedAt = new Date().toISOString();
+  return fetch('/diag-report', { method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(report) })
+    .then(() => log('report POSTed to phone - check the dashboard connect-info card'))
+    .catch(e => log('report POST failed (' + e + ') - photograph this screen instead'));
+}
+
+async function runAll() {
+  report.startedAt = new Date().toISOString();
+  document.getElementById('env').textContent =
+    `${location.origin} - ${navigator.userAgent}`;
+  await metrics();
+  testSelf();
+  await testConfig();
+  await testPing();
+  await testXhr();
+  await testWs();
+  await testStun();
+  await testRtc();
+  verdict();
+  await postReport();
+  log('done. Photograph this screen (or just reopen connect-info on the phone).');
+}
+window.addEventListener('load', runAll);
+</script>
+</body>
+</html>

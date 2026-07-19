@@ -108,9 +108,40 @@ function setResult(id, status, detail) {
   if (location.protocol === 'https:') {
     log('WARNING: page loaded over https - the fetch/WS rows below will be blocked as ' +
         'mixed content regardless of any Tesla-side policy. Reload via http:// for those ' +
-        'two rows; the WebRTC/STUN rows are NOT affected by mixed content.');
+        'two rows; the WebRTC/STUN rows are NOT affected by mixed content. TIP: the phone ' +
+        'serves this same probe over http at http://<phone-ip>:<port>/probe-webrtc.html - ' +
+        'open THAT in the car and every row runs (same-origin, no mixed content).');
   }
+  logEnvironmentMetrics();
 })();
+
+// Read-only browser/environment metrics - free signal, no network needed,
+// captured on every run so a car photo carries the full fingerprint (which
+// firmware/Chromium, what the browser thinks its network is, viewport, etc).
+function logEnvironmentMetrics() {
+  const c = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+  if (c) {
+    log(`netinfo: type=${c.type || '?'} effectiveType=${c.effectiveType || '?'} ` +
+        `downlink=${c.downlink ?? '?'}Mbps rtt=${c.rtt ?? '?'}ms saveData=${c.saveData ?? '?'}`);
+  } else {
+    log('netinfo: Network Information API not present');
+  }
+  log(`viewport: ${innerWidth}x${innerHeight} dpr=${devicePixelRatio} ` +
+      `screen=${screen.width}x${screen.height} online=${navigator.onLine} ` +
+      `lang=${navigator.language} cpu=${navigator.hardwareConcurrency || '?'} ` +
+      `mem=${navigator.deviceMemory || '?'}GB`);
+  const uad = navigator.userAgentData;
+  if (uad) {
+    log(`uaData: mobile=${uad.mobile} platform=${uad.platform} ` +
+        `brands=${(uad.brands || []).map(b => b.brand + '/' + b.version).join(',')}`);
+    uad.getHighEntropyValues?.(['platformVersion', 'model', 'fullVersionList', 'architecture'])
+      .then(v => log(`uaData(hi): model=${v.model || '?'} platVer=${v.platformVersion || '?'} ` +
+        `arch=${v.architecture || '?'} full=${(v.fullVersionList||[]).map(b=>b.brand+'/'+b.version).join(',')}`))
+      .catch(() => {});
+  }
+  navigator.permissions?.query?.({ name: 'geolocation' })
+    .then(p => log(`perm(geolocation)=${p.state}`)).catch(() => {});
+}
 
 const phoneIpInput = document.getElementById('phoneIp');
 phoneIpInput.value = localStorage.getItem('probePhoneIp') || '';
@@ -239,6 +270,16 @@ function stunTest(id, stunUrl, timeoutMs) {
       if (!e.candidate) return finish(false, `gathering ended, no srflx from ${stunUrl}`);
       log(`${id} cand: ` + e.candidate.candidate);
       if (e.candidate.candidate.includes(' typ srflx ')) {
+        // Dump ICE/candidate stats before closing - the srflx candidate's
+        // reflexive address + the local base tell exactly which interface
+        // the packet left from, useful when the browser is multi-homed.
+        pc.getStats().then(s => {
+          s.forEach(r => {
+            if (r.type === 'local-candidate' && r.candidateType === 'srflx')
+              log(`${id} stats: srflx ${r.address}:${r.port} from base, proto=${r.protocol} ` +
+                  `network=${r.networkType || '?'}`);
+          });
+        }).catch(() => {});
         finish(true, `srflx candidate in ${(performance.now() - t0).toFixed(0)}ms - ` +
           'a full UDP round trip to this STUN server succeeded');
       }

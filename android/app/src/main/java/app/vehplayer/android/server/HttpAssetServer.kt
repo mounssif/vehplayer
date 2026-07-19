@@ -50,6 +50,11 @@ class HttpAssetServer(
     var requestCount = 0
         private set
 
+    /** Last JSON report POSTed by the in-car /diag page; null until one runs. */
+    @Volatile
+    var lastDiagReport: String? = null
+        private set
+
     override fun serve(session: IHTTPSession): Response {
         val uri = session.uri
         requestCount++
@@ -64,7 +69,42 @@ class HttpAssetServer(
             }
         }
 
-        val assetPath = if (uri == "/" || uri.isEmpty()) "index.html" else uri.removePrefix("/")
+        // Diagnostic endpoints (session 9). The /diag page is served from the
+        // phone's own http origin, so its fetch/WS/XHR/STUN rows are
+        // same-origin and escape the mixed-content block the cloud https
+        // probe hits. Loading /diag at all already proves TCP car->phone.
+        if (uri == "/ping" || uri == "/ping/") {
+            return newFixedLengthResponse(Response.Status.OK, "text/plain", "pong")
+                .apply { addHeader("Access-Control-Allow-Origin", "*") }
+        }
+        if (uri == "/diag-config") {
+            val body = "{\"wsPort\":$wsPort,\"httpPort\":${listeningPort}}"
+            return newFixedLengthResponse(Response.Status.OK, "application/json", body)
+                .apply { addHeader("Access-Control-Allow-Origin", "*") }
+        }
+        if (uri == "/diag-report" && session.method == Method.POST) {
+            val len = session.headers["content-length"]?.toIntOrNull() ?: 0
+            val json = if (len > 0) {
+                val buf = ByteArray(len)
+                var read = 0
+                while (read < len) {
+                    val n = session.inputStream.read(buf, read, len - read)
+                    if (n < 0) break
+                    read += n
+                }
+                String(buf, 0, read, Charsets.UTF_8)
+            } else ""
+            lastDiagReport = json
+            return newFixedLengthResponse(Response.Status.OK, "application/json", "{\"ok\":true}")
+                .apply { addHeader("Access-Control-Allow-Origin", "*") }
+        }
+
+        val assetPath = when {
+            uri == "/" || uri.isEmpty() -> "index.html"
+            // Extensionless convenience alias so the car only has to type /diag.
+            uri == "/diag" || uri == "/diag/" -> "diag.html"
+            else -> uri.removePrefix("/")
+        }
         return try {
             val stream = context.assets.open("webclient/$assetPath")
             newChunkedResponse(Response.Status.OK, mimeTypeFor(assetPath), stream)

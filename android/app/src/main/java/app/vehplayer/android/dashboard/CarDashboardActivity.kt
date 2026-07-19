@@ -416,11 +416,34 @@ class CarDashboardActivity : AppCompatActivity() {
                 append("\n\nreached from network: HTTP ").append(httpHits)
                     .append("x / STUN ").append(stunHits)
                     .append("x (reopen after a car attempt; nonzero = packets arrive)")
+                svc.lastDiagReport?.let { append("\n\nlast in-car diag: ").append(summarizeDiag(it)) }
             }
-            if (probeUrl != null) append("\n\nscan with a phone/laptop on the hotspot: connectivity probe runs itself")
+            if (probeUrl != null) {
+                append("\n\nIn the car type this URL (or scan it with a phone/laptop on the hotspot): ")
+                append(probeUrl)
+                append("\nIt runs the full test itself and reports the result back here.")
+            }
         }
         overlay.visibility = View.VISIBLE
         overlay.setOnClickListener { overlay.visibility = View.GONE }
+    }
+
+    /**
+     * One-line summary of the JSON report the /diag page POSTs back, so the
+     * founder reads the in-car result on the phone without a photo. Best
+     * effort: any parse trouble just shows the raw head.
+     */
+    private fun summarizeDiag(json: String): String = try {
+        val o = org.json.JSONObject(json)
+        val results = o.optJSONObject("results")
+        val parts = listOf("self", "ping", "ws", "stun", "rtc").mapNotNull { k ->
+            results?.optJSONObject(k)?.optString("status")?.let { "$k=$it" }
+        }
+        val metrics = o.optJSONObject("metrics")
+        val chromium = metrics?.optString("chromium")?.takeIf { it.isNotEmpty() }
+        (parts.joinToString(" ") + (chromium?.let { "  [Chromium $it]" } ?: "")).ifEmpty { "(empty report)" }
+    } catch (e: Exception) {
+        json.take(80)
     }
 
     private fun qrBitmap(content: String, sizePx: Int): android.graphics.Bitmap {
