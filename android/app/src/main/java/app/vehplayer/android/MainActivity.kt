@@ -96,16 +96,21 @@ class MainActivity : AppCompatActivity() {
             val host = reachableTier1Address ?: localIpAddress()
             val url = if (host != null) "http://${formatHostForUrl(host)}:$port/go" else null
             if (url != null) {
+                // The AP interface's own RFC1918 address, independent of
+                // whatever tier the ladder picked - this is what the WebRTC
+                // probe page needs (the VPN address is ingress-discarded for
+                // external peers, and nothing on the phone's own UI shows the
+                // AP address anywhere - a real founder-in-the-car time sink,
+                // session 8).
+                val hotspotIp = localIpAddress()
                 startActivity(
                     Intent(this, CarDashboardActivity::class.java)
                         .putExtra(CarDashboardActivity.EXTRA_CONNECTION_URL, url)
-                        // The AP interface's own RFC1918 address, independent of
-                        // whatever tier the ladder picked - this is what the
-                        // WebRTC probe page needs typed in (the VPN address is
-                        // ingress-discarded for external peers, and nothing on
-                        // the phone's own UI shows the AP address anywhere - a
-                        // real founder-in-the-car time sink, session 8).
-                        .putExtra(CarDashboardActivity.EXTRA_HOTSPOT_IP, localIpAddress()),
+                        .putExtra(CarDashboardActivity.EXTRA_HOTSPOT_IP, hotspotIp)
+                        .putExtra(
+                            CarDashboardActivity.EXTRA_PROBE_URL,
+                            hotspotIp?.let { "https://veh.modev.be/probe-webrtc?ip=$it&port=$port" },
+                        ),
                 )
             } else {
                 setStatus("Streaming started, but couldn't detect your hotspot's address. Turn on your phone's hotspot and tap Start again.")

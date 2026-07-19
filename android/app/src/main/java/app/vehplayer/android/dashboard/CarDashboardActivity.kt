@@ -45,6 +45,7 @@ class CarDashboardActivity : AppCompatActivity() {
     companion object {
         const val EXTRA_CONNECTION_URL = "connection_url"
         const val EXTRA_HOTSPOT_IP = "hotspot_ip"
+        const val EXTRA_PROBE_URL = "probe_url"
     }
 
     private val clockFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
@@ -119,6 +120,8 @@ class CarDashboardActivity : AppCompatActivity() {
                         phoneOverlay.visibility == View.VISIBLE -> phoneOverlay.close()
                         navAppPicker.visibility == View.VISIBLE -> navAppPicker.close()
                         widgetPicker.visibility == View.VISIBLE -> widgetPicker.close()
+                        findViewById<View>(R.id.probeQrOverlay).visibility == View.VISIBLE ->
+                            findViewById<View>(R.id.probeQrOverlay).visibility = View.GONE
                         else -> {
                             isEnabled = false
                             onBackPressedDispatcher.onBackPressed()
@@ -152,6 +155,9 @@ class CarDashboardActivity : AppCompatActivity() {
                     url
                 }
                 visibility = View.VISIBLE
+                intent.getStringExtra(EXTRA_PROBE_URL)?.let { probeUrl ->
+                    setOnClickListener { showProbeQr(probeUrl) }
+                }
             }
         }
 
@@ -378,6 +384,45 @@ class CarDashboardActivity : AppCompatActivity() {
                 heroPageDots.addView(touchTarget)
             }
         }
+    }
+
+    /**
+     * Full-screen QR of the probe-webrtc URL with the phone's hotspot IP
+     * and port prefilled (?ip=&port= + autorun) - scan with any second
+     * device on the hotspot and the whole connectivity probe runs with
+     * zero typing. Opened by tapping the connection URL text.
+     */
+    private fun showProbeQr(probeUrl: String) {
+        val overlay = findViewById<FrameLayout>(R.id.probeQrOverlay)
+        val image = findViewById<ImageView>(R.id.probeQrImage)
+        if (image.drawable == null) {
+            runCatching { image.setImageBitmap(qrBitmap(probeUrl, 720)) }
+                .onFailure {
+                    android.util.Log.w("CarDashboardActivity", "QR render failed", it)
+                    return
+                }
+        }
+        findViewById<TextView>(R.id.probeQrCaption).text = probeUrl
+        overlay.visibility = View.VISIBLE
+        overlay.setOnClickListener { overlay.visibility = View.GONE }
+    }
+
+    private fun qrBitmap(content: String, sizePx: Int): android.graphics.Bitmap {
+        val matrix = com.google.zxing.qrcode.QRCodeWriter().encode(
+            content,
+            com.google.zxing.BarcodeFormat.QR_CODE,
+            sizePx,
+            sizePx,
+            mapOf(com.google.zxing.EncodeHintType.MARGIN to 1),
+        )
+        val pixels = IntArray(sizePx * sizePx)
+        for (y in 0 until sizePx) {
+            for (x in 0 until sizePx) {
+                pixels[y * sizePx + x] =
+                    if (matrix[x, y]) android.graphics.Color.BLACK else android.graphics.Color.WHITE
+            }
+        }
+        return android.graphics.Bitmap.createBitmap(pixels, sizePx, sizePx, android.graphics.Bitmap.Config.RGB_565)
     }
 
     private fun setUpTile(includeId: Int, iconRes: Int, label: String, onClick: () -> Unit) {

@@ -294,6 +294,22 @@ replaceable by a maps widget. Built:
 - Tier (a) IPv6 end-to-end on the emulator - still not done.
 - Navigate slide replace/hide setting; real-device check of the
   "missing" nav settings gear; the split-view driving layout direction.
+- **Scan-to-probe QR shipped (build-18, founder idea)**: probe page
+  accepts `?ip=&port=` and autoruns; tapping the dashboard's connection
+  URL opens a full-screen QR encoding
+  `https://veh.modev.be/probe-webrtc?ip=<hotspot-ip>&port=<port>` - any
+  second device scans and the whole probe runs with zero typing.
+  Verified end to end: QR rendered on the emulator dashboard, decoded
+  back to the exact URL (opencv), page autofills + autoruns (headless
+  Chrome). zxing:core dependency (encoder only, no camera code).
+- **Next product step, same founder thread ("richting het product
+  zelf")**: cloud pairing - phone registers `{hotspot ip, port}` as a
+  tiny JSON blob under a short code with the cloud Worker (control
+  plane only, no media, passes the architecture bar), the car just
+  opens `veh.modev.be` and enters the short code from the dashboard
+  (Teslas have no camera, so QR can't serve the car itself). This
+  short-code rendezvous is the same mechanism WebRTC signaling needs
+  anyway - build it once, it serves both.
 
 ## Session 7, part 2: FIRST REAL TESLA TEST - tier (c) is dead on modern Android, and we know exactly why
 

@@ -114,6 +114,18 @@ function setResult(id, status, detail) {
 const phoneIpInput = document.getElementById('phoneIp');
 phoneIpInput.value = localStorage.getItem('probePhoneIp') || '';
 
+// QR/deep-link support: ?ip=<addr>&port=<port> prefills, and autoruns the
+// whole suite - the phone's dashboard shows this URL as a QR code so a
+// second device runs the full probe with zero typing.
+{
+  const params = new URLSearchParams(location.search);
+  const qpIp = params.get('ip');
+  const qpPort = params.get('port');
+  if (qpIp) phoneIpInput.value = qpIp;
+  if (qpPort) document.getElementById('httpPort').value = qpPort;
+  if (qpIp) window.addEventListener('load', () => runAll());
+}
+
 // --- test 1: API presence ---
 function testApi() {
   const ok = typeof RTCPeerConnection === 'function';

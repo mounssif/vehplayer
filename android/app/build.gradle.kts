@@ -105,6 +105,13 @@ dependencies {
     // ambient tint (Palette API), see CarDashboardActivity.
     implementation("androidx.palette:palette-ktx:1.0.0")
 
+    // QR rendering (pure-Java encoder, no camera/scanner parts) for the
+    // dashboard's scan-to-probe overlay: encodes the probe-webrtc URL with
+    // the phone's real hotspot IP prefilled so a second device runs the
+    // whole connectivity probe with zero typing (session 8, after a real
+    // in-car session burned on hand-typed wrong addresses).
+    implementation("com.google.zxing:core:3.5.3")
+
     // Hero card swipes between Now Playing and Navigate (dashboard/CarDashboardActivity),
     // each a Fragment so the embedded MapView gets correct lifecycle forwarding.
     implementation("androidx.viewpager2:viewpager2:1.1.0")
