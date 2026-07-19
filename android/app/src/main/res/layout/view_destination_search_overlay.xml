@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Full-screen destination search: opened by NavigateMapFragment's "Where
+     to?" pill. Lives at the CarDashboardActivity level (see
+     DestinationSearchOverlayView.kt) instead of inside the hero card, which
+     is only a fraction of the screen - not tall enough for a search field +
+     live suggestions + a real keyboard all at once. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/dash_bg"
+    android:orientation="vertical">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingBottom="12dp">
+
+        <ImageView
+            android:id="@+id/overlayCloseButton"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:padding="8dp"
+            android:src="@drawable/ic_close"
+            android:contentDescription="Close search"
+            app:tint="@color/dash_text_muted"
+            xmlns:app="http://schemas.android.com/apk/res-auto" />
+
+        <EditText
+            android:id="@+id/overlayDestinationInput"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="8dp"
+            android:background="@null"
+            android:fontFamily="@font/space_grotesk_regular"
+            android:textColor="@color/dash_text_primary"
+            android:textColorHint="@color/dash_text_muted"
+            android:textSize="20sp"
+            android:hint="Where to?"
+            android:imeOptions="actionSearch"
+            android:inputType="text"
+            android:maxLines="1" />
+
+        <ProgressBar
+            android:id="@+id/overlaySearchProgress"
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:layout_marginEnd="8dp"
+            android:visibility="gone"
+            android:indeterminateTint="@color/dash_accent_amber" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/overlaySearchErrorText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingBottom="8dp"
+        android:fontFamily="@font/space_grotesk_medium"
+        android:textColor="@color/dash_text_muted"
+        android:textSize="14sp"
+        android:visibility="gone" />
+
+    <androidx.core.widget.NestedScrollView
+        android:id="@+id/overlaySuggestionsScroll"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <LinearLayout
+            android:id="@+id/overlaySuggestionsList"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical" />
+    </androidx.core.widget.NestedScrollView>
+
+    <app.vehplayer.android.dashboard.CarKeyboardView
+        android:id="@+id/overlayKeyboard"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content" />
+
+</LinearLayout>

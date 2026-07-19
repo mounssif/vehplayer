@@ -34,6 +34,16 @@
     <uses-permission android:name="android.permission.BIND_VPN_SERVICE"
         tools:ignore="ProtectedPermissions" />
 
+    <!-- Phone tile: recent calls + contacts w/ A-Z scrubber
+         (dashboard/PhoneOverlayView.kt). Runtime dangerous permissions
+         (unlike accessibility/notification-listener above, which are
+         special-access settings toggles) - requested via the standard
+         system permission dialog, not a Settings redirect. Sideloaded, not
+         Play-distributed, so Play's "default dialer/companion app only"
+         READ_CALL_LOG restriction doesn't apply here. -->
+    <uses-permission android:name="android.permission.READ_CALL_LOG" />
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+
     <!-- In-app update install (update/ApkInstaller.kt): lets the app hand a
          downloaded APK straight to the system installer instead of routing
          through the browser. Still one explicit user tap on the installer's
@@ -94,10 +104,26 @@
                 android:resource="@xml/accessibility_service_config" />
         </service>
 
-        <!-- Reachability tier (b)/(c) fallback (ARCHITECTURE.md §7). Stubbed,
-             see VpnReachabilityService.kt, not wired into the fallback ladder
-             yet, S1 spike still needs to calibrate which tiers actually get
-             used in practice. -->
+        <!-- Now Playing (real MediaSession data) + Messages (cross-app
+             notification-based inbox), both on this one listener grant -
+             MediaSessionManager.getActiveSessions requires an enabled
+             NotificationListenerService component regardless of whether
+             notification content itself is read, so one permission ask
+             covers both features. See NEXT_SESSION.md. -->
+        <service
+            android:name="app.vehplayer.android.media.VehplayerNotificationListenerService"
+            android:exported="false"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
+        <!-- Reachability tier (c) fallback (ARCHITECTURE.md §7): assigns a
+             100.64.0.0/10 (CGNAT) address via VpnService, sidestepping the
+             RFC1918 block Tesla's in-car browser is confirmed to apply -
+             see VpnReachabilityService.kt for the evidence this range is
+             based on. -->
         <service
             android:name="app.vehplayer.android.net.VpnReachabilityService"
             android:exported="false"

@@ -1,6 +1,5 @@
 package app.vehplayer.android.dashboard
 
-import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -10,9 +9,13 @@ import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.widget.ImageView
 import android.widget.TextView
+import androidx.activity.OnBackPressedCallback
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.viewpager2.widget.ViewPager2
 import app.vehplayer.android.R
+import app.vehplayer.android.media.PhoneAccess
+import com.mapbox.geojson.Point
 import java.text.SimpleDateFormat
 import java.util.Locale
 
@@ -42,6 +45,13 @@ class CarDashboardActivity : AppCompatActivity() {
     private lateinit var heroPager: ViewPager2
     private lateinit var dotNowPlaying: View
     private lateinit var dotNavigate: View
+    private lateinit var destinationSearchOverlay: DestinationSearchOverlayView
+    private lateinit var messagesOverlay: MessagesOverlayView
+    private lateinit var phoneOverlay: PhoneOverlayView
+
+    private val phonePermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) { phoneOverlay.refresh() }
 
     private val clockTick = object : Runnable {
         override fun run() {
@@ -58,6 +68,30 @@ class CarDashboardActivity : AppCompatActivity() {
         clockText = findViewById(R.id.clockText)
         dotNowPlaying = findViewById(R.id.dotNowPlaying)
         dotNavigate = findViewById(R.id.dotNavigate)
+        destinationSearchOverlay = findViewById(R.id.destinationSearchOverlay)
+        destinationSearchOverlay.onDismiss = { destinationSearchOverlay.close() }
+        messagesOverlay = findViewById(R.id.messagesOverlay)
+        messagesOverlay.onDismiss = { messagesOverlay.close() }
+        phoneOverlay = findViewById(R.id.phoneOverlay)
+        phoneOverlay.onDismiss = { phoneOverlay.close() }
+        phoneOverlay.onRequestPermissions = { phonePermissionLauncher.launch(PhoneAccess.PERMISSIONS) }
+
+        onBackPressedDispatcher.addCallback(
+            this,
+            object : OnBackPressedCallback(true) {
+                override fun handleOnBackPressed() {
+                    when {
+                        destinationSearchOverlay.visibility == View.VISIBLE -> destinationSearchOverlay.close()
+                        messagesOverlay.visibility == View.VISIBLE -> messagesOverlay.close()
+                        phoneOverlay.visibility == View.VISIBLE -> phoneOverlay.close()
+                        else -> {
+                            isEnabled = false
+                            onBackPressedDispatcher.onBackPressed()
+                        }
+                    }
+                }
+            },
+        )
 
         heroPager = findViewById<ViewPager2>(R.id.heroPager).apply {
             adapter = HeroPagerAdapter(this@CarDashboardActivity)
@@ -87,14 +121,10 @@ class CarDashboardActivity : AppCompatActivity() {
             heroPager.setCurrentItem(1, true)
         }
         setUpTile(R.id.tilePhone, R.drawable.ic_phone, "Phone") {
-            // ACTION_DIAL (not ACTION_CALL): opens the dialer pre-filled,
-            // needs no CALL_PHONE permission, the user still taps call.
-            startActivity(Intent(Intent.ACTION_DIAL))
+            phoneOverlay.open()
         }
         setUpTile(R.id.tileMessages, R.drawable.ic_message, "Messages") {
-            startActivity(
-                Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_MESSAGING),
-            )
+            messagesOverlay.open()
         }
     }
 
@@ -131,6 +161,15 @@ class CarDashboardActivity : AppCompatActivity() {
                     View.SYSTEM_UI_FLAG_FULLSCREEN
                 )
         }
+    }
+
+    /** Called by NavigateMapFragment when its "Where to?" pill is tapped. */
+    fun openDestinationSearch(origin: Point, onChosen: (Point, String) -> Unit) {
+        destinationSearchOverlay.onDestinationChosen = { point, label ->
+            destinationSearchOverlay.close()
+            onChosen(point, label)
+        }
+        destinationSearchOverlay.open(origin)
     }
 
     private fun setUpTile(includeId: Int, iconRes: Int, label: String, onClick: () -> Unit) {

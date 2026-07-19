@@ -16,9 +16,235 @@
 > definitely on" pushback that turned out to be right and pointed at the
 > real bug - not from emulator testing alone, the emulator had missed all
 > three). Session 4 also added `CarDashboardActivity` (Phase 1 of a real
-> car-optimized home screen, replacing raw phone mirroring). **The car
-> browser has still not actually been tested against veh.modev.be** (only
-> curl-verified), that's still the next real-hardware thing to do.
+> car-optimized home screen, replacing raw phone mirroring). Session 5 found
+> `veh.modev.be` had regressed back to serving raw source (a stale/never-
+> completed deploy, not a code bug - re-deploying the already-correct
+> `dist/` fixed it) and built Phase 3's Navigate page: a real embedded
+> Mapbox map with search + routing, replacing the plain launcher-intent
+> tile. Session 6 built out the rest of the dashboard for real - a custom
+> car keyboard + live destination suggestions, real Now Playing
+> (MediaSessionManager), a real Messages overview and Phone tab (call log +
+> contacts), a Navigate recenter button - and fixed a real connectivity bug:
+> tier (a) (IPv6 GUA) was being found but then silently ignored when
+> building the shown connection URL, and tier (c) (VpnService non-RFC1918
+> address assignment, previously just a TODO stub) is now implemented,
+> evidence-backed against a real shipping competitor (see that section).
+> **None of tier (a)/(c) has been confirmed against a real Tesla** - only
+> verified as far as the emulator can go (address assignment, URL building,
+> the app-level flow), the actual "can a second real device on the phone's
+> hotspot reach that address" question needs real hardware. **The car
+> browser has still not actually been tested against veh.modev.be** either
+> (only curl-verified) - both are still the next real-hardware things to do.
+
+## Session 6: real dashboard integrations + a real connectivity bug fix
+
+Kicked off from user feedback on a real device: the Now Playing card was
+still the static placeholder, the search keyboard was the wrong tool for a
+car (system IME), Phone/Messages tiles just launched other apps instead of
+showing anything, and the whole local-IP connection flow was suspected of
+being fragile on real hardware. All confirmed and fixed except the last
+one's real-hardware verification.
+
+### Navigate: custom keyboard + live suggestions (full-screen overlay)
+First attempt built the keyboard *inside* `NavigateMapFragment`'s hero
+card - wrong call, verified wrong on the emulator: the hero card is only
+~40% of screen height (`activity_car_dashboard.xml`'s 0.6-width, not-full-
+height `heroCard`), so a 5-row keyboard overflowed it entirely and hid the
+search field it was supposed to serve. Fixed by moving search entirely out
+of the fragment into `DestinationSearchOverlayView`, a full-screen overlay
+owned by `CarDashboardActivity` (same pattern `MessagesOverlayView` and
+`PhoneOverlayView` reuse below) - `NavigateMapFragment`'s "Where to?" bar
+is now just a launcher pill.
+
+- `CarKeyboardView.kt`: custom on-screen keyboard (44dp keys, Material
+  minimum), letters + a `123` toggle for digits/symbols rather than an
+  always-visible digits row (tried that first too, same space problem).
+- `DestinationSearchOverlayView.kt`: debounced (300ms) live suggestions via
+  Mapbox's Search Box API `/suggest` + `/retrieve` (session-token paired
+  per Mapbox's billing model), falls back to one-shot `/forward` geocoding
+  if the user types-and-submits before picking a suggestion.
+- Verified live on the emulator: typed "part" → real "Party Store"
+  suggestion appeared, keyboard never overlapped the search field.
+
+### Now Playing: real MediaSessionManager data
+`media/VehplayerNotificationListenerService.kt` is the one
+`NotificationListenerService` component both this and Messages ride on -
+`MediaSessionManager.getActiveSessions()` requires naming an *enabled
+listener component* even though media playback state has nothing to do
+with notification content, that's just the API shape. `NowPlayingFragment`
+now shows real title/artist/art/play-state, wires transport controls
+(play/pause/skip), and tints the play button from the album art's actual
+dominant color via `palette-ktx` (dependency was already added session 4
+for this, unused until now).
+
+Three real states, each verified live by toggling the permission via adb
+(`cmd notification allow_listener` / `disallow_listener`): permission not
+granted → "Tap to enable Now Playing" (opens
+`Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS`); granted, nothing
+playing → "Nothing playing"; a track playing → real content. **Not
+verified**: an actual live MediaSession populating the content state - the
+emulator has no way to get a real media app playing without a Google
+account sign-in (YT Music) or a working Chrome first-run flow (hit a
+first-run interstitial loop trying to play an mp3 directly, gave up per
+the "don't rabbit-hole on browser automation" rule rather than keep
+fighting it). The two idle states are real end-to-end verification of the
+permission-gating logic; the populated-content code path uses the
+documented `MediaController`/`MediaMetadata` APIs the standard way but
+hasn't been watched actually firing on a real session.
+
+### Messages: cross-app overview via notification metadata
+No public API reads WhatsApp message content at all (deliberately locked
+down by Meta), and RCS threads aren't in the SMS content provider - so
+there is no generic "read all messages" API to build a real inbox from.
+`VehplayerNotificationListenerService.recentMessages()` reads notification
+metadata instead (sender, preview text, timestamp, the notification's own
+`PendingIntent`) filtered to `CATEGORY_MESSAGE` or `MessagingStyle` extras
+- this generically covers SMS/WhatsApp/Telegram/anything that posts a
+normal messaging notification, without needing per-app integration. Tap a
+message → fires its own `contentIntent`, opening the real conversation in
+the real app. `MessagesOverlayView.kt` is the full-screen UI (same
+overlay-at-Activity-level pattern as search). Verified live: posted a test
+notification via `adb shell cmd notification post -S messaging ...`,
+confirmed it appeared in the overlay and rendered via the real pipeline
+(the visible text was garbled in that one test because of the *test
+command's* shell-quoting, not an app bug - the plumbing itself is real).
+
+**Note for whoever picks up "real widgets" next**: the user has a real,
+currently-working WhatsApp home-screen widget (screenshot provided,
+conversation list + new-chat button) - `Signal` genuinely does not have
+one (checked, a 2014-era feature request still open), but WhatsApp and
+Telegram do. A research pass this session confirmed `AppWidgetHost`
+embedding (like Nova Launcher and some existing car-dashboard apps already
+do) is real and buildable with no special permission, just
+`ACTION_APPWIDGET_BIND` user consent per widget - but it's a poor fit for
+*replacing* Messages/Phone (foreign widget styling clashes with the
+warm-dark theme, phone-homescreen grid sizing doesn't fit car tiles).
+Right fit for later: a generic "pin any widget" tile for things that will
+never get bespoke integration (Home Assistant, the user's own Tesla
+"alset" widget, weather).
+
+### Phone: real call log + contacts, A-Z scrubber
+`PhoneOverlayView.kt`, same full-screen-overlay pattern. Two real runtime
+dangerous permissions (`READ_CALL_LOG`, `READ_CONTACTS` - not a
+special-access settings toggle like the notification listener above, an
+actual system permission dialog), requested via
+`CarDashboardActivity.phonePermissionLauncher`
+(`registerForActivityResult`, has to live on the Activity, a custom View
+can't launch one itself).
+
+**Real bug found and fixed via live testing, worth remembering**: the
+first call log query used `"${CallLog.Calls.DATE} DESC LIMIT 30"` as the
+sort order string - `CallLog`'s provider validates `sortOrder` against a
+strict grammar on modern Android and throws `IllegalArgumentException` for
+anything with a `LIMIT` clause tacked on, silently swallowed by the
+existing `runCatching`, so the call list rendered empty with the correct
+*permission* state but no data and no visible error. Fixed by removing
+`LIMIT` from the SQL string and capping client-side in the cursor loop
+instead, plus added `.onFailure { Log.w(...) }` so this class of bug logs
+instead of silently vanishing next time. Verified live end to end: inserted
+a real call-log row and a real contact via `adb shell content insert`,
+confirmed both rendered correctly, confirmed the A-Z index strip renders
+and is positioned correctly (only showed "J", correctly, since only one
+contact existed).
+
+### Navigate: recenter-on-me floating button
+Small one: panning or searching away from your position previously had no
+way back short of relaunching the fragment. `ic_locate.xml` + a circular
+button, bottom-end of the map, flies the camera back to `lastKnownOrigin`.
+Verified visually live (correct position, doesn't overlap the search bar
+or route pill); the actual fly-to wasn't exercised since the emulator has
+no live location fix by default.
+
+### Connectivity: a real tier (a) bug fix + tier (c) implemented
+Started because the user suspected the local-IP flow was fragile on real
+hardware and recalled TeslAA/androidwheels.com solving this differently.
+Two research passes (backgrounded, this session) plus the user's own
+follow-up push (spotted a live WhatsApp widget contradicting an early
+"WhatsApp mostly doesn't have widgets" assumption, then asked for a deep
+read of teslamirror.com specifically) built up a real picture:
+
+1. **Tesla's in-car Chromium really does refuse RFC1918 addresses**
+   (`10/8`, `172.16/12`, `192.168/16`) outright - independently
+   corroborated by a Tesla fleet-telemetry GitHub issue, multiple
+   unconnected Tesla Motors Club forum threads spanning years, and
+   `teslamirror.com`'s own marketing copy explaining why their app needs a
+   VPN permission at all. Not a rumor.
+2. **A cloud relay (the originally-recommended fix) was rejected**: it
+   would violate this codebase's own explicit architectural principle -
+   `cloud/src/index.ts`'s header comment literally states "Control plane
+   only, never media (Foundation §6: 'Cloud never sees a video frame')".
+   Piping video/audio bytes through a Cloudflare Worker, even without
+   persisting them, breaks that promise. Caught before writing any Worker
+   relay code, not after - worth remembering as a gate to check before
+   proposing *any* future architecture change that touches the media path.
+3. **Real bug fixed**: `MainActivity.awaitHttpServerAndShowUrl()` always
+   called `localIpAddress()` (a plain IPv4 hotspot guess) to build the
+   shown connection URL, completely ignoring the real tier (a) IPv6 GUA
+   address `ReachabilityLadder.decide()` may have *already found* a few
+   lines earlier in `onStartClicked()`. So even on a phone where tier (a)
+   was genuinely available, the app would still show an RFC1918 IPv4 URL
+   and hit the exact block being worked around. Fixed: the decided address
+   now flows through (`reachableTier1Address` field,
+   `formatHostForUrl()` brackets IPv6 literals for the URL authority).
+   `HttpAssetServer.kt`'s `/go` redirect already reflects back whatever
+   `Host` header the browser used rather than re-deriving its own address,
+   so no change was needed there - it automatically benefits.
+4. **Tier (c) implemented** (`VpnReachabilityService.kt`, previously an
+   empty stub with a TODO deferring it until "S1 spike data exists"):
+   `VpnService.Builder().addAddress("100.99.9.1", 32)`, no packet-
+   forwarding loop needed - standard kernel IP routing delivers a packet
+   arriving on any physical interface (the hotspot AP link) to the local
+   socket stack whenever the destination address is configured on ANY
+   local interface, including a VpnService tun address, regardless of
+   which wire it physically arrived on; `HttpAssetServer`/`LocalMediaServer`
+   already bind wildcard so the existing listening socket just picks it up.
+   **The address range (`100.64.0.0/10`, RFC 6598 CGNAT space, NOT
+   RFC1918) is evidence-backed, not guessed**: `teslamirror.com` - a real,
+   currently-selling competitor app - documents doing exactly this,
+   binding its own embedded server to `100.99.9.9` for this exact reason;
+   independent TMC forum hobbyists solving the identical problem converged
+   on the same non-RFC1918 workaround. `MainActivity` now actually starts
+   this service and threads its address through the same
+   `reachableTier1Address` path as tier (a).
+   
+   **Verified on the emulator, as far as the emulator can go**: VPN
+   consent dialog → real system VPN key icon appeared in the status bar →
+   `adb shell ip addr show tun0` confirmed `100.99.9.1/32` really assigned
+   → the shown connection URL correctly read `http://100.99.9.1:8080/go`.
+   **NOT verified**: whether a real *second* device (the car) on the
+   phone's real WiFi hotspot can actually route to that address - the
+   emulator is a single virtual device, it cannot simulate a second peer
+   joining its hotspot. The kernel-routing reasoning above is sound and
+   matches how `teslamirror.com` documents doing it, but this is
+   *reasoned, evidence-backed, not yet real-hardware-confirmed* - the
+   honest distinction this project has cared about all along. Confirm
+   against a real Tesla before trusting this in the field.
+5. **Samsung DeX**: researched and ruled out (see below) - no relevant API
+   surface, not worth engineering effort for this product.
+
+### Samsung DeX (researched, not built)
+No DeX-specific API surface relevant to `MediaProjection`/`VirtualDisplay`/
+`AccessibilityService` input injection - it's the same core Android APIs
+either way. DeX's own display-output path (Miracast/wired) can't
+substitute for the browser-based delivery this app already built (
+different transport models entirely - a browser tab is not a Miracast
+receiver). Not Samsung-exclusive as a category (Motorola "Ready For",
+stock Android 16 Desktop Windowing exist too) but fragmented with no
+shared API, so "supporting DeX" wouldn't even generalize. **Verdict: not
+worth building anything for this.**
+
+### Still genuinely open from this session
+- **Accessibility/handsfree audit**: not started. Touch target sizes,
+  contrast, glanceability, and whether search-while-typing should be
+  restricted to parked-only are all still open product/UX questions, not
+  just implementation ones.
+- **Start/update screen (`MainActivity`'s plain layout) restyle**: not
+  started, still the old plain look, not matching `CarDashboardActivity`'s
+  warm-dark Space Grotesk visual language.
+- **Real-hardware validation of tier (a)/(c)** (see above) - the single
+  biggest remaining unknown, blocks trusting the whole connectivity fix.
+- **Generic AppWidgetHost "pin any widget" tile** - real, buildable,
+  deliberately deferred (see Messages section above).
 
 ## CarDashboardActivity (session 4, build-9) - Phase 1 of 3
 Founder pushback that mattered: "casting my whole phone has no value to me,

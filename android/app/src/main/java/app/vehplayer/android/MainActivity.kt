@@ -16,6 +16,7 @@ import app.vehplayer.android.dashboard.CarDashboardActivity
 import app.vehplayer.android.input.VehplayerAccessibilityService
 import app.vehplayer.android.net.ReachabilityDecision
 import app.vehplayer.android.net.ReachabilityLadder
+import app.vehplayer.android.net.VpnReachabilityService
 import app.vehplayer.android.update.ApkInstaller
 import app.vehplayer.android.update.UpdateChecker
 import java.net.Inet4Address
@@ -52,6 +53,15 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var rootLayout: LinearLayout
 
+    // Set by onStartClicked() when ReachabilityLadder finds a real global
+    // IPv6 address (tier (a)) - awaitHttpServerAndShowUrl() must use THIS,
+    // not always fall back to localIpAddress()'s IPv4 guess: a real hotspot
+    // IPv4 (192.168.x.x etc.) is exactly the RFC1918 range Tesla's in-car
+    // browser is confirmed to refuse to connect to at all (NEXT_SESSION.md),
+    // so silently ignoring a known-good tier (a) address here would defeat
+    // the whole point of having the ladder pick tier (a) in the first place.
+    private var reachableTier1Address: String? = null
+
     private val projectionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val data = result.data
         if (result.resultCode == Activity.RESULT_OK && data != null) {
@@ -76,8 +86,8 @@ class MainActivity : AppCompatActivity() {
     private fun awaitHttpServerAndShowUrl(attempt: Int = 0) {
         val port = CaptureService.instance?.httpServerPort
         if (port != null) {
-            val host = localIpAddress()
-            val url = if (host != null) "http://$host:$port/go" else null
+            val host = reachableTier1Address ?: localIpAddress()
+            val url = if (host != null) "http://${formatHostForUrl(host)}:$port/go" else null
             if (url != null) {
                 startActivity(
                     Intent(this, CarDashboardActivity::class.java)
@@ -100,12 +110,39 @@ class MainActivity : AppCompatActivity() {
 
     private val vpnConsentLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
-            // VpnReachabilityService (tiers b/c) is a real, tracked TODO
-            // (net/VpnReachabilityService.kt), intentionally not surfaced to
-            // the user, that's an internal implementation detail.
-            setStatus("VPN permission granted, but this connection path isn't finished yet. Use a direct connection for now.")
+            startVpnTierAndProceed()
         } else {
             setStatus("VPN permission was declined. Without it, this phone has no way to reach your car — streaming can't start.")
+        }
+    }
+
+    /**
+     * Starts VpnReachabilityService (tier (c), see that class) and waits
+     * briefly for its address assignment to resolve - establish() happens
+     * asynchronously inside the service's onStartCommand, same async-port
+     * shape as CaptureService.httpServerPort below, not something this call
+     * can read synchronously right after starting the service.
+     */
+    private fun startVpnTierAndProceed() {
+        startService(Intent(this, VpnReachabilityService::class.java))
+        awaitVpnAddressAndProceed()
+    }
+
+    private fun awaitVpnAddressAndProceed(attempt: Int = 0) {
+        val address = VpnReachabilityService.activeAddress
+        if (address != null) {
+            reachableTier1Address = address
+            setStatus("Connection looks good. Requesting screen access...")
+            requestProjection()
+            return
+        }
+        if (attempt >= 20) { // ~4s at 200ms apart
+            setStatus("Couldn't set up the alternate connection path. Streaming can't start without a way for your car to reach this phone.")
+            return
+        }
+        CoroutineScope(Dispatchers.Main).launch {
+            delay(200)
+            awaitVpnAddressAndProceed(attempt + 1)
         }
     }
 
@@ -196,16 +233,18 @@ class MainActivity : AppCompatActivity() {
         when (val decision = ReachabilityLadder.decide(this)) {
             is ReachabilityDecision.Tier1NoVpnNeeded -> {
                 android.util.Log.i("MainActivity", "reachability tier (a) OK at ${decision.address}")
+                reachableTier1Address = decision.address
                 setStatus("Connection looks good. Requesting screen access...")
                 requestProjection()
             }
             is ReachabilityDecision.NeedsVpnConsent -> {
+                reachableTier1Address = null
                 setStatus("Direct connection isn't available. Trying an alternate path, this needs one extra permission...")
                 vpnConsentLauncher.launch(decision.prepareIntent)
             }
             is ReachabilityDecision.VpnAlreadyPrepared -> {
-                setStatus("Requesting screen access...")
-                requestProjection()
+                setStatus("Connection ready. Requesting screen access...")
+                startVpnTierAndProceed()
             }
         }
     }
@@ -248,6 +287,9 @@ class MainActivity : AppCompatActivity() {
     } catch (e: SocketException) {
         null
     }
+
+    /** IPv6 literals need brackets in a URL authority (`[2001:db8::1]:8080`); IPv4 doesn't. */
+    private fun formatHostForUrl(host: String): String = if (host.contains(':')) "[$host]" else host
 
     private fun buildInitialStatus(): String = "vehplayer setup\n" +
         "1. Enable input control (one-time)\n" +

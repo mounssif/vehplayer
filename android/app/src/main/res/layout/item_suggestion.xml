@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@drawable/bg_suggestion_item"
+    android:paddingHorizontal="16dp"
+    android:paddingVertical="12dp"
+    android:focusable="true"
+    android:clickable="true">
+
+    <TextView
+        android:id="@+id/suggestionName"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:fontFamily="@font/space_grotesk_medium"
+        android:textColor="@color/dash_text_primary"
+        android:textSize="16sp"
+        android:maxLines="1"
+        android:ellipsize="end"
+        tools:text="Empire State Building"
+        xmlns:tools="http://schemas.android.com/tools" />
+
+    <TextView
+        android:id="@+id/suggestionAddress"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:fontFamily="@font/space_grotesk_regular"
+        android:textColor="@color/dash_text_muted"
+        android:textSize="13sp"
+        android:maxLines="1"
+        android:ellipsize="end"
+        tools:text="350 5th Ave, New York, NY"
+        xmlns:tools="http://schemas.android.com/tools" />
+</LinearLayout>

@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:background="@drawable/bg_suggestion_item"
+    android:paddingHorizontal="4dp"
+    android:paddingVertical="12dp"
+    android:focusable="true"
+    android:clickable="true">
+
+    <TextView
+        android:id="@+id/contactInitial"
+        android:layout_width="36dp"
+        android:layout_height="36dp"
+        android:gravity="center"
+        android:background="@drawable/bg_icon_badge"
+        android:fontFamily="@font/space_grotesk_bold"
+        android:textColor="@color/dash_bg"
+        android:textSize="15sp"
+        tools:text="J"
+        xmlns:tools="http://schemas.android.com/tools" />
+
+    <TextView
+        android:id="@+id/contactName"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:layout_marginStart="14dp"
+        android:fontFamily="@font/space_grotesk_medium"
+        android:textColor="@color/dash_text_primary"
+        android:textSize="17sp"
+        android:maxLines="1"
+        android:ellipsize="end"
+        tools:text="Jamie Alvarez"
+        xmlns:tools="http://schemas.android.com/tools" />
+</LinearLayout>

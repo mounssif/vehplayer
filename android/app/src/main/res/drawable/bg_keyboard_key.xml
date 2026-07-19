@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ripple xmlns:android="http://schemas.android.com/apk/res/android"
+    android:color="@color/dash_accent_amber">
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@color/dash_surface_elevated" />
+            <stroke android:width="1dp" android:color="@color/dash_border" />
+            <corners android:radius="10dp" />
+        </shape>
+    </item>
+</ripple>

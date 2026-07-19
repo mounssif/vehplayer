@@ -19,6 +19,7 @@
             android:alpha="0.35"
             app:tint="@color/dash_text_muted" />
         <TextView
+            android:id="@+id/nowPlayingIdleText"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="14dp"

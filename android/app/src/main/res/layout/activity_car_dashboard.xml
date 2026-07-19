@@ -133,4 +133,41 @@
             android:layout_marginTop="14dp" />
     </LinearLayout>
 
+    <!-- Full-screen destination search (text field + live suggestions +
+         CarKeyboardView), opened by NavigateMapFragment's "Where to?" pill.
+         Lives here, not inside the hero card, so it gets the whole screen's
+         height instead of just the hero card's fraction of it - see
+         DestinationSearchOverlayView.kt. Drawn last = on top of everything. -->
+    <app.vehplayer.android.dashboard.DestinationSearchOverlayView
+        android:id="@+id/destinationSearchOverlay"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:visibility="gone"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <!-- Same full-screen-overlay rationale as destinationSearchOverlay
+         above, see MessagesOverlayView.kt. -->
+    <app.vehplayer.android.dashboard.MessagesOverlayView
+        android:id="@+id/messagesOverlay"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:visibility="gone"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <app.vehplayer.android.dashboard.PhoneOverlayView
+        android:id="@+id/phoneOverlay"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:visibility="gone"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
 </androidx.constraintlayout.widget.ConstraintLayout>
