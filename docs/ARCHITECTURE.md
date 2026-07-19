@@ -1,6 +1,6 @@
-# VEPLA - Architecture (v1)
+# vehplayer - Architecture
 
-> Companion to `VEPLA_Foundation.md` §6/§7. This is the technical single source of truth for the pipeline, the protocol, and the Gate-1 spike protocols. Evidence status tags: MEASURED (our car), REPORTED (other projects, forums), ASSUMED (verify at Gate 1).
+> Companion to `VEHPLAYER_Foundation.md` §6/§7. This is the technical single source of truth for the pipeline, the protocol, and the Gate-1 spike protocols. Evidence status tags: MEASURED (our car), REPORTED (other projects, forums), ASSUMED (verify at Gate 1).
 
 ## 1. System Overview
 
@@ -56,8 +56,42 @@ Trust boundary note: the hotspot may have other clients. The WS server requires 
 - Bitrate: CBR-ish 6-12 Mbps at 1080p, adaptive (see §5). Per-tier defaults: MCU2 720p30 @ 5 Mbps, MCU3 1080p60 @ 10 Mbps (ASSUMED tiers, calibrate at Gate 2).
 
 ### Decode + render (car)
-- **Primary: WebCodecs.** `VideoDecoder` fed AnnexB-converted NALUs (or AVCC, decide with the framing in §4), `optimizeForLatency: true`. Output `VideoFrame` painted to canvas/WebGL. REPORTED working in current Tesla firmware (Castla). Feature-detect at runtime.
-- **Fallback: MSE.** fMP4 (one moof/mdat per frame or small cluster), `SourceBuffer` in `'sequence'` mode, aggressive buffer trimming, playbackRate nudging to chase live edge. This is the TesAA-era path; it works everywhere video works but costs latency. Keep it dumb and reliable.
+- **The only path confirmed to work in Drive: WebCodecs to canvas.**
+  `VideoDecoder` fed AnnexB-converted NALUs (or AVCC, decide with the
+  framing in §4), `optimizeForLatency: true`. Output `VideoFrame` painted
+  to **canvas**, not a `<video>` element. REPORTED, multiple independent
+  sources: **Tesla's in-car browser suppresses `<video>` element playback
+  while the car is in Drive** (`MARKET_AND_PRICING.md` §3), confirmed by a
+  TeslaTap developer describing exactly this architecture: "the video
+  component of the browser is not available, to workaround I convert the
+  video to canvas images and use websocket to send the stream to the car
+  browser and it render in the canvas using animationFrame." This is not
+  an implementation detail, it's the entire reason a canvas-based decode
+  path is viable in motion at all - promote this from "primary, with a
+  fallback" to "the only path that matters for a nav/dashboard product",
+  since in-motion is the only state where a driving-focused product needs
+  to actually work.
+- **`mseFallback.ts` deprioritized, not simply unfinished** (correction,
+  `MARKET_AND_PRICING.md` §3 item 2): MSE renders through a real `<video>`
+  element, so on any car where it would be *needed* (WebCodecs
+  unsupported), it's also the most likely to be suppressed in the one
+  state - Drive - that matters for navigation. The unimplemented Annex-B
+  to fMP4 muxer (`mseFallback.ts`) stays a real TODO for park-only/media
+  use cases, but should not be treated as a required deliverable blocking
+  anything - verify the Drive-suppression claim against a real car before
+  deleting the fallback path entirely, but stop planning around it as if
+  it were equally load-bearing.
+- **Codec calibration, verify against a real published competitor
+  rather than guess** (`COMPETITIVE_REASSESSMENT.md` §4.1): TeslaMirror
+  (a real, 5.5-year-shipping competitor, per-firmware release notes)
+  publishes: MCU3 → H.265 720p60 recommended (1080p60 H.264 or 1080p30
+  H.265 as the ceiling), MCU2 → H.264 **540p30** recommended (notably
+  lower than this doc's current 720p30 ASSUMED default below), and since
+  Tesla software 2025.38.11, H.265 works on MCU2 too. Treat as a strong
+  prior to verify at Gate 1, not as ground truth - but far better informed
+  than the current guess. We currently ship H.264 only (no H.265), a real
+  gap against this specific competitor worth a Gate-1-adjacent
+  investigation, not a Gate-1 blocker.
 - **Render policy:** decode queue max depth 1-2; if frames arrive faster than paint, drop to latest. Never accumulate delay to preserve smoothness; latency wins over smoothness for a driving UI.
 
 ## 3. Audio Pipeline

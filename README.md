@@ -1,15 +1,18 @@
 # vehplayer , asset & tooling repo
 
-Your phone, on your car's screen. No box, no dongle, no Shizuku. (Working codename
-`vehplayer` at the code level, see docs/VEPLA_Foundation.md §1 for why.)
-See `docs/VEPLA_Foundation.md` for full project context (name, vision, business model) and
+A car dashboard for your Tesla. Not a phone on a big screen. No box, no dongle, no
+Shizuku required for the free tier. `vehplayer` is the real, locked product name
+(see docs/VEHPLAYER_Foundation.md §1 - the old "VEPLA" name is retired).
+See `docs/VEHPLAYER_Foundation.md` for full project context (name, vision, business model) and
 `docs/ARCHITECTURE.md` for the technical single source of truth (pipeline, wire protocol, Gate-1 spikes).
-Growth/SaaS reasoning in full: `docs/GROWTH_SAAS.md`. Session-to-session state: `docs/NEXT_SESSION.md`.
+Growth/SaaS reasoning in full: `docs/GROWTH_SAAS.md`. Real competitive/market research:
+`docs/COMPETITIVE_REASSESSMENT.md`, `docs/MARKET_AND_PRICING.md`. Session-to-session state: `docs/NEXT_SESSION.md`.
 
 ## docs/
-- `VEPLA_Foundation.md`  single source of truth. Load into project context every session.
+- `VEHPLAYER_Foundation.md`  single source of truth. Load into project context every session.
 - `ARCHITECTURE.md`      video/audio pipeline, wire protocol, reachability ladder, Gate-1 spike protocols.
 - `GROWTH_SAAS.md`       positioning, monetization, GTM sequencing, moat reasoning.
+- `COMPETITIVE_REASSESSMENT.md` / `MARKET_AND_PRICING.md`  real competitor + market data (19 July 2026), evidence-tagged.
 - `NEXT_SESSION.md`      kickoff prompt for the next session, also the changelog of what's real vs stubbed.
 
 ## android/ (real Gate-2 pipeline code, BUILDS clean and RUNS on a real emulator)
@@ -20,7 +23,8 @@ protocol), `HttpAssetServer` (NanoHTTPD, serves the cached webclient bundle + mi
 tokens at `/go`), `VehplayerAccessibilityService` (dispatchGesture input injection with live
 `StrokeDescription` continuation, not buffer-and-replay), `ReachabilityLadder` +
 `ReachabilityProbe` (tier (a) IPv6 detection, ARCHITECTURE.md §6b), `VpnReachabilityService`
-(tiers (b)/(c), stub, see its TODO). `MainActivity` is the real two-minute setup flow.
+(tier (c), CGNAT address assignment, evidence-backed against a real competitor, NOT yet
+real-hardware-confirmed - see NEXT_SESSION.md session 6). `MainActivity` is the real two-minute setup flow.
 `./gradlew assembleDebug` passes clean; installed and smoke-tested end to end on a real
 emulator (onboarding flow, accessibility binding, HTTP asset serving, reachability ladder),
 see NEXT_SESSION.md for exactly what was exercised and what still needs a real car/phone.

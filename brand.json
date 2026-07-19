@@ -1,0 +1,64 @@
+{
+  "name": "vehplayer",
+  "former_names": [
+    {
+      "name": "VEPLA",
+      "status": "retired",
+      "reason": "Collides with an unrelated Swedish B2B app (verksamhetsplatsen.se, construction/project-management software, live on Play Store + App Store). Different Nice class, probably not a hard legal blocker, but the repo carried two names for a while and that already caused real confusion (see docs/NEXT_SESSION.md's 'phantom v1' note). Retired entirely as of session 6, not just a working codename anymore."
+    }
+  ],
+  "tagline_primary": "A car dashboard for your Tesla. Not a phone on a big screen.",
+  "taglines_supporting": [
+    "Navigation, music and calls, laid out for a car screen. Your phone stays in your pocket.",
+    "Nothing leaves the car. No cloud, no relay, no account.",
+    "Nothing Google ships can turn this off.",
+    "No ads. Ever."
+  ],
+  "category_definition": "A car dashboard. Mirroring is the delivery mechanism, not the product. Every mirroring-only competitor (Tesla Display, TeslaMirror, Car Cast, TesAA/WebAA) is fighting over the commodity; vehplayer is the only one shipping a purpose-built dashboard.",
+  "naming_rule": {
+    "app_title_and_icon": "Never use 'Android Auto' or 'CarPlay', never imply endorsement, never use Apple's or Google's logos.",
+    "store_long_description_and_seo": "Nominative comparison use is allowed and expected ('an alternative to Android Auto and CarPlay for cars with a browser instead of a head unit') - this is how the category is actually searched for."
+  },
+  "status": "pre-launch, Gate 1-3",
+  "domain": {
+    "current": "veh.modev.be",
+    "current_note": "Placeholder - a personal/dev domain, 12 characters with two dots, reads as hobbyist on a car touchscreen. Not the intended launch domain.",
+    "target": null,
+    "target_note": "A short (ideally ~3-4 letter), hyphen-free, no-subdomain domain is planned before launch. Not yet chosen or purchased as of this writing - treat as an open [MENS] item, not a decided value, until the founder confirms a specific registration."
+  },
+  "visual_identity": {
+    "theme": "warm dark with amber and gold accents",
+    "theme_note": "Deliberately not the cool blue-grey every Android Auto/CarPlay clone and every mirroring competitor reaches for - closer to a dashboard's leather-and-dim-instrument-light feeling. Already implemented in CarDashboardActivity (android/app/src/main/res/values/colors.xml), treat as the brand, not as a theme that could change.",
+    "display_font": "Space Grotesk (OFL-licensed, vendored in android/app/src/main/res/font/ and webclient assets/licenses/)",
+    "colors": {
+      "background": "#14120F",
+      "surface": "#211E19",
+      "surface_elevated": "#2B2620",
+      "border": "#37312A",
+      "text_primary": "#F5F0E6",
+      "text_muted": "#948E82",
+      "accent_amber": "#F2A93B",
+      "accent_teal": "#4FB0A5"
+    }
+  },
+  "missing_assets": [
+    "App icon (launcher size + Play listing size) - none exists yet",
+    "Wordmark for the store listing, the site, and the car-side connect screen",
+    "Store feature graphic, screenshots, short and long description"
+  ],
+  "pricing": {
+    "free": "Full CarDashboardActivity experience (dashboard, now-playing, phone, messages) plus mirror mode with touch control. No time limit, no watermark, no nag.",
+    "pro": {
+      "price_eur": 9.99,
+      "type": "one-time",
+      "test_bounds_eur": [7.99, 12.99],
+      "contents": "In-app navigation, screen-off/virtual display Power Mode, low-latency or lossless browser audio, auto-connect, split view, multi-car profiles."
+    },
+    "decided_not_subscription": "One-time purchase, not subscription - direct counter-position to Car Cast, avoids a support obligation a solo-maintained product can't staff. See docs/GROWTH_SAAS.md §4 for the full reasoning."
+  },
+  "sources_of_truth": {
+    "product_and_architecture": "docs/VEHPLAYER_Foundation.md, docs/ARCHITECTURE.md",
+    "business_and_pricing": "docs/GROWTH_SAAS.md, docs/COMPETITIVE_REASSESSMENT.md, docs/MARKET_AND_PRICING.md",
+    "session_state": "docs/NEXT_SESSION.md"
+  }
+}

@@ -1,8 +1,9 @@
 # vehplayer - Next Session Kickoff
 
 > For Claude Code, running locally with the real Android SDK + full internet
-> access. Paste this alongside `VEPLA_Foundation.md`, `ARCHITECTURE.md`, and
-> `GROWTH_SAAS.md` as project context. Four sessions in now: session 1 (chat
+> access. Paste this alongside `VEHPLAYER_Foundation.md`, `ARCHITECTURE.md`,
+> `GROWTH_SAAS.md`, `COMPETITIVE_REASSESSMENT.md` and `MARKET_AND_PRICING.md`
+> as project context. Four sessions in now: session 1 (chat
 > sandbox, no Android SDK) built the Gate-2 pipeline blind. Session 2 (Claude
 > Code, real SDK at `/mnt/DEV/Android/Sdk`, real emulator) compiled it,
 > fixed what broke, and smoke-tested the app end to end on a real emulator.
@@ -35,6 +36,16 @@
 > hotspot reach that address" question needs real hardware. **The car
 > browser has still not actually been tested against veh.modev.be** either
 > (only curl-verified) - both are still the next real-hardware things to do.
+> Session 6 also absorbed a real competitive/market research pass
+> (`docs/COMPETITIVE_REASSESSMENT.md`, `docs/MARKET_AND_PRICING.md`) and
+> restructured the docs/business layer around it: retired the "VEPLA" name
+> for real (not just a working codename), replaced the phantom-"v1"
+> `VEPLA_Foundation.md` with a complete `VEHPLAYER_Foundation.md`, rewrote
+> `GROWTH_SAAS.md`'s pricing and moat reasoning against real competitor
+> install numbers instead of assumptions, and added `CLAUDE.md`,
+> `brand.json`, a `Makefile`, and a `legal/` directory (privacy policy,
+> terms, processing register, trademark note - all drafts, all flagged
+> `[MENS]`/needs-real-legal-review, not published-ready).
 
 ## Session 6: real dashboard integrations + a real connectivity bug fix
 
@@ -246,6 +257,81 @@ worth building anything for this.**
 - **Generic AppWidgetHost "pin any widget" tile** - real, buildable,
   deliberately deferred (see Messages section above).
 
+### Market/business/legal restructuring (session 6, second half)
+Triggered by the user uploading three documents mid-session; one
+(`REVIEWENSYNC19juli.md`, about an unrelated Dutch "Vondst" waitlist
+product) was correctly identified as an accidental upload and **not**
+incorporated - flagged back to the user rather than silently applied to
+the wrong project. The other two (`COMPETITIVE_REASSESSMENT.md`,
+`MARKET_AND_PRICING.md`) are real, evidence-tagged vehplayer research,
+copied into `docs/` and acted on:
+
+- **`VEPLA_Foundation.md` retired, replaced by `VEHPLAYER_Foundation.md`.**
+  Fixed the multi-session "phantom v1" problem (the old doc repeatedly
+  said "unchanged, see v1 §N" for a v1 that never existed anywhere in this
+  repo) by removing the phantom citations and stating each section's
+  actual content directly - reconstructed from cross-references elsewhere
+  in the corpus where recoverable (Autopsy Lesson 1, the Castla/GPL
+  lesson), explicitly flagged as not-recoverable where it genuinely wasn't
+  (most of the original Lessons 2-5), rather than inventing plausible-
+  sounding history to fill the gap.
+- **`GROWTH_SAAS.md` rewritten**: pricing moved from "subscription or
+  one-time, price-test both" to a decided one-time €9.99 Pro tier (the
+  original subscription framing directly contradicted the actual pricing
+  decision once real competitor data was checked); "diversification is the
+  moat" walked back to "protocol independence + purpose-built dashboard is
+  the moat" once Lucid (added CarPlay, left the market) and GM (Google
+  Built-in has no usable browser) turned out not to support the
+  diversification story; Fleet/Dealer tier marked an explicit speculative
+  appendix, not roadmap; added the TesAA/WebAA-outage launch-window
+  sequencing (a real, time-limited, findable stranded user base) as GTM
+  step zero.
+- **`ARCHITECTURE.md` §2 updated**: Tesla suppresses `<video>` element
+  playback in Drive (REPORTED, independent sources including a TeslaTap
+  developer describing this project's own canvas-based architecture) -
+  promoted WebCodecs-to-canvas from "primary, with a fallback" to "the
+  only path that matters for a driving product", and documented why
+  `mseFallback.ts`'s muxer is deprioritized rather than simply unfinished
+  (that doc comment updated too). Also logged TeslaMirror's published
+  per-MCU codec calibration (MCU2 → H.264 540p30, notably below our
+  current 720p30 default) as a strong prior to verify at Gate 1, not
+  ground truth.
+- **New root files**: `CLAUDE.md` (session fast-path conventions),
+  `brand.json` (name/tagline/domain/pricing/visual-identity single source
+  of truth - domain is explicitly marked not-yet-chosen, don't treat any
+  candidate as decided), `Makefile` (`make release` hard-codes the
+  `aapt`/asset-name verification steps from two real incidents this
+  session - see below - so they can't be silently skipped again).
+- **`legal/` directory created**: `privacy-policy.md`,
+  `terms-of-service.md`, `processing-register.md`, `trademark-note.md`.
+  All explicitly drafts, `[MENS]`-flagged wherever a real fact (legal
+  entity, address, jurisdiction) or a real lawyer's review is needed - not
+  written to look publish-ready, written to be an accurate starting point
+  for one.
+
+**Two real incidents caught and fixed inside this same doc-integration
+pass, worth remembering**:
+1. Publishing build-11 initially uploaded the GitHub release asset as
+   `vehplayer-debug-11.apk` instead of `vehplayer-debug.apk` - `gh release
+   create file#label` only sets a display label, it does NOT rename the
+   actual asset (unlike what the build-10 publish session assumed, which
+   happened to work only because that source file was already named
+   correctly). `UpdateChecker.kt` requires the exact filename
+   `vehplayer-debug.apk`; this would have silently broken in-app updates
+   for anyone who received a build-10 notification. Caught immediately
+   after publishing by re-checking the release's own asset JSON, fixed by
+   deleting and re-uploading with the correct filename. `make release` now
+   verifies this automatically.
+2. A privacy-policy/processing-register pass for an unrelated unfamiliar
+   project (mentioned inside `REVIEWENSYNC19juli.md`, the accidentally-
+   uploaded doc) documented a domain purchase as an already-completed fact
+   when the domain had actually been registered by an unconnected third
+   party - the working agreement that came out of that incident
+   ("[MENS] facts stay open until confirmed, never folded into a facts
+   table as settled") was applied proactively to vehplayer's own domain
+   section in `brand.json`/`trademark-note.md` this session, before it
+   could cause the same problem here.
+
 ## CarDashboardActivity (session 4, build-9) - Phase 1 of 3
 Founder pushback that mattered: "casting my whole phone has no value to me,
 I want the Android Auto/CarPlay *feeling*, not a raw mirror." Re-embedding
@@ -260,18 +346,18 @@ whatever's in the foreground, so if a purpose-built dashboard Activity is
 what's in front when streaming starts, that's what the car sees. Zero
 wire-protocol or capture-pipeline changes.
 
-**Note found while investigating this**: `docs/VEPLA_Foundation.md` is
-internally versioned "v2" and repeatedly says "unchanged, see v1 §N" for
-load-bearing sections (§3 Product Vision, §4 The Autopsy/Lessons 1-5,
-§5 Competitive Position, §10 Failure Modes, §12 Working Agreements) - but
-**no v1 document exists anywhere in this repo**. Whatever "v1" originally
-contained (the actual Autopsy lessons, the actual Failure Mode
-descriptions) was never captured as a file here. `GROWTH_SAAS.md` restates
-enough of it in passing to work with (TeslAA died to a Google validation
-change, Castla's ceiling is Shizuku, the moat is protocol-independence),
-but if a future session needs the *original* v1 detail this doc keeps
-citing, it does not exist and someone needs to either reconstruct it or
-stop citing it as if it does.
+**Note found while investigating this (session 4), fixed session 6**:
+`docs/VEPLA_Foundation.md` was internally versioned "v2" and repeatedly
+said "unchanged, see v1 §N" for load-bearing sections - but no v1 document
+ever existed anywhere in this repo. Session 6 replaced it entirely with
+`docs/VEHPLAYER_Foundation.md`: the phantom "see v1" pointers are gone,
+each section states its actual current content directly, and where the
+original content genuinely wasn't recoverable from anywhere else in the
+corpus (most of the original Autopsy's Lessons 2-5), that's flagged
+explicitly in that document's §4 rather than invented. Session 6 also
+retired the "VEPLA" name entirely per real trademark/market research
+(`docs/COMPETITIVE_REASSESSMENT.md` §7.1) - `vehplayer` is now the actual
+product name, not just a working codename.
 
 Three-phase plan:
 1. **Done (build-9)**: `CarDashboardActivity` - full-screen, immersive,
@@ -593,9 +679,15 @@ needs one of: a real Model 3 (Gate-1 spikes S1-S4), a real Android phone
 `mseFallback`'s muxer against), or a real Cloudflare account (`cloud/`'s KV
 namespaces). None of that is remotely doable.
 
-## Also still open from before (Foundation TODOs, unchanged)
-- Domain + trademark check (Foundation §1), including the VEPLA-name
-  collision noted previously.
+## Also still open from before (Foundation TODOs)
+- Trademark check for "vehplayer" itself (Foundation §1) - the VEPLA-name
+  collision that motivated this is resolved (VEPLA retired entirely,
+  session 6), but "vehplayer" hasn't had a real trademark screening either.
+- Short car-facing domain (Foundation §1, `COMPETITIVE_REASSESSMENT.md`
+  §7.2): `veh.modev.be` is a placeholder (12 chars, two dots, personal
+  domain in the product surface). User is looking for a short (ideally
+  ~3-4 letter) domain - **not yet chosen or purchased**, do not treat any
+  specific candidate as decided until confirmed.
 
 ## Scope-creep tripwires (Working Agreement, Foundation §12)
 - Any pull toward a second car brand, Fleet tier, or paid marketing before

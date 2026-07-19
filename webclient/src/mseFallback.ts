@@ -2,6 +2,16 @@
 // video works but costs latency, keep it dumb and reliable." Used only when
 // `VideoDecoder` is not present (older Tesla firmware / other browsers).
 //
+// Deliberately NOT a priority to finish (ARCHITECTURE.md §2, session 6):
+// Tesla's in-car browser is REPORTED to suppress <video> element playback
+// while the car is in Drive (multiple independent sources, see that doc).
+// This renderer works through a real <video> element (see the constructor
+// below) - so on any car where it's actually *needed* (WebCodecs
+// unsupported), it's also the browser configuration most likely to be
+// suppressed in the one state that matters for a driving/navigation
+// product. Keep the plumbing (it's genuinely useful for park-only/media
+// use cases), but don't treat the muxer TODO below as blocking anything.
+//
 // This file is the plumbing (SourceBuffer lifecycle, aggressive buffer
 // trimming, playbackRate nudging to chase the live edge). The one piece
 // deliberately NOT implemented here is the Annex-B -> fragmented-MP4 muxer
