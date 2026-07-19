@@ -231,24 +231,25 @@ replaceable by a maps widget. Built:
 
 ### Still open after session 8
 
-- **Founder: connect Workers Builds (one-time, ~3 min), then the in-car
-  probe run.** Decision made this session (founder delegated: "best,
-  most stable, safest for the end user"): webclient deploys switch from
-  manual `wrangler deploy` to Cloudflare Workers Builds auto-deploy on
-  push to main - the sessions 3/5 stale-deploy incidents are exactly the
-  failure class this removes, builds stay CF-side (still no GitHub
-  Actions, so the original avoid-CI preference's real concern is
-  honored). Checklist:
-  1. dash.cloudflare.com → Workers & Pages → worker `vehplayer` →
-     Settings → Builds → Connect repository → GitHub
-     `mounssif/vehplayer`, branch `main`.
-  2. Root directory: `webclient`. Build command: `npm ci && npm run
-     build`. Deploy command: `npx wrangler deploy`.
-  3. Push anything (or re-run the first build) and verify
-     `https://veh.modev.be/probe-webrtc.html` returns 200 - that page
-     being live is what unblocks the in-car WebRTC probe.
-  Until then the manual fallback still works: `npx wrangler login` once,
-  then `make deploy-web`.
+- ~~Founder: connect Workers Builds~~ - **DONE, live-verified same
+  evening.** Founder connected the repo to the existing `vehplayer`
+  worker (Settings → Build: root `/webclient`, build `npm ci && npm run
+  build`, deploy `npx wrangler deploy`, own `vehplayer build token`);
+  an empty-commit push triggered the first build and
+  `https://veh.modev.be/probe-webrtc` went 404→live in about a minute,
+  MEASURED by curl. Deploys are now automatic on every push to main -
+  the sessions 3/5 stale-deploy failure class is closed. Notes: CF's
+  static-asset html_handling strips `.html` (the canonical probe URL is
+  `/probe-webrtc`, the `.html` form 307s there); manual
+  `make deploy-web` remains as fallback. **One sub-item still open
+  [MENS]**: founder was asked to set Branch control → "Builds for
+  non-production branches" to Disabled (it was Enabled with the version
+  command equal to a production deploy, so a stray branch push would
+  deploy to production) - not yet confirmed done.
+- **In-car probe run** (five minutes): phone streaming first, car
+  browser to `https://veh.modev.be/probe-webrtc`, enter the phone's
+  shown IP + port, RUN ALL, photograph the rows. Decisive row:
+  "UDP to PHONE". fetch/WS rows will SKIP over https (expected).
 - **HTTPS redirect stays ON** (zone-level "Always Use HTTPS", verified
   live: http→301→https). Safest default for the product; the probe's
   decisive STUN/UDP rows are unaffected by https. Only if the fetch/WS
