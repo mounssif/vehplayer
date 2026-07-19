@@ -27,11 +27,11 @@ import java.util.Locale
  * MainActivity's settings list, that is what the car sees, with zero wire
  * protocol or capture-pipeline changes.
  *
- * Now-playing is still a static "Nothing playing" placeholder here
- * (Phase 2 wires MediaSessionManager + Notification Listener access, a
- * sensitive permission worth its own confirmation step, not bundled into
- * this pass). Tiles fire plain launcher intents; a nav-app picker (Phase 3)
- * replaces the generic `geo:` intent with a chosen app later.
+ * Now Playing, Messages and Phone are all wired to real data (session 6).
+ * Navigate defaults to the built-in Mapbox map but respects
+ * NavAppPreference - a user can pick a real installed nav app (Google
+ * Maps, Waze, whatever's actually there) instead, per real user feedback
+ * that not everyone wants in-app rendering.
  */
 class CarDashboardActivity : AppCompatActivity() {
 
@@ -48,6 +48,7 @@ class CarDashboardActivity : AppCompatActivity() {
     private lateinit var destinationSearchOverlay: DestinationSearchOverlayView
     private lateinit var messagesOverlay: MessagesOverlayView
     private lateinit var phoneOverlay: PhoneOverlayView
+    private lateinit var navAppPicker: NavAppPickerView
 
     private val phonePermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
@@ -75,6 +76,8 @@ class CarDashboardActivity : AppCompatActivity() {
         phoneOverlay = findViewById(R.id.phoneOverlay)
         phoneOverlay.onDismiss = { phoneOverlay.close() }
         phoneOverlay.onRequestPermissions = { phonePermissionLauncher.launch(PhoneAccess.PERMISSIONS) }
+        navAppPicker = findViewById(R.id.navAppPicker)
+        navAppPicker.onDismiss = { navAppPicker.close() }
 
         onBackPressedDispatcher.addCallback(
             this,
@@ -84,6 +87,7 @@ class CarDashboardActivity : AppCompatActivity() {
                         destinationSearchOverlay.visibility == View.VISIBLE -> destinationSearchOverlay.close()
                         messagesOverlay.visibility == View.VISIBLE -> messagesOverlay.close()
                         phoneOverlay.visibility == View.VISIBLE -> phoneOverlay.close()
+                        navAppPicker.visibility == View.VISIBLE -> navAppPicker.close()
                         else -> {
                             isEnabled = false
                             onBackPressedDispatcher.onBackPressed()
@@ -170,6 +174,11 @@ class CarDashboardActivity : AppCompatActivity() {
             onChosen(point, label)
         }
         destinationSearchOverlay.open(origin)
+    }
+
+    /** Called by NavigateMapFragment's settings icon. */
+    fun openNavAppPicker() {
+        navAppPicker.open()
     }
 
     private fun setUpTile(includeId: Int, iconRes: Int, label: String, onClick: () -> Unit) {

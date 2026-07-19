@@ -146,7 +146,7 @@
 
             <LinearLayout
                 android:id="@+id/azIndex"
-                android:layout_width="28dp"
+                android:layout_width="34dp"
                 android:layout_height="match_parent"
                 android:orientation="vertical"
                 android:gravity="center_horizontal" />

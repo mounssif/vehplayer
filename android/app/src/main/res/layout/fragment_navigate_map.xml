@@ -69,6 +69,20 @@
         app:tint="@color/dash_bg"
         android:contentDescription="Recenter on my location" />
 
+    <!-- Choose which app destinations open in - built-in map or a real
+         installed nav app (NavAppPreference.kt), per real user feedback. -->
+    <ImageView
+        android:id="@+id/navAppSettingsButton"
+        android:layout_width="44dp"
+        android:layout_height="44dp"
+        android:layout_gravity="bottom|start"
+        android:layout_margin="16dp"
+        android:padding="11dp"
+        android:background="@drawable/bg_search_bar"
+        android:src="@drawable/ic_settings"
+        app:tint="@color/dash_text_muted"
+        android:contentDescription="Choose navigation app" />
+
     <TextView
         android:id="@+id/routeInfoPill"
         android:layout_width="wrap_content"

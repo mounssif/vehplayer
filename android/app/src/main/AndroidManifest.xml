@@ -2,6 +2,21 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- Package visibility (Android 11+, API 30+): without this,
+         queryIntentActivities() for a `geo:` intent silently returns
+         nothing for any app outside this one, even when a real nav app
+         (Google Maps, Waze) is genuinely installed - found via real-device
+         testing, NavAppPreference.kt's picker showed only the built-in
+         option even with Google Maps confirmed installed and resolvable
+         via `adb shell cmd package resolve-activity`, which isn't subject
+         to this restriction the way the app's own process is. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="geo" />
+        </intent>
+    </queries>
+
     <!-- Reachability probe + always-needed -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />

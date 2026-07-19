@@ -34,6 +34,7 @@ class MessagesOverlayView @JvmOverloads constructor(
     private val openAppButton: View
     private val emptyState: View
     private val emptyText: TextView
+    private val emptySubtext: TextView
     private val scroll: NestedScrollView
     private val list: LinearLayout
 
@@ -45,6 +46,7 @@ class MessagesOverlayView @JvmOverloads constructor(
         openAppButton = findViewById(R.id.messagesOpenAppButton)
         emptyState = findViewById(R.id.messagesEmptyState)
         emptyText = findViewById(R.id.messagesEmptyText)
+        emptySubtext = findViewById(R.id.messagesEmptySubtext)
         scroll = findViewById(R.id.messagesScroll)
         list = findViewById(R.id.messagesList)
 
@@ -74,12 +76,28 @@ class MessagesOverlayView @JvmOverloads constructor(
 
     private fun refresh() {
         if (!NotificationAccess.isEnabled(context)) {
-            showEmpty("Tap to enable Messages", enablePrompt = true)
+            showEmpty(
+                "Tap to enable Messages",
+                enablePrompt = true,
+                subtext = null,
+            )
             return
         }
         val messages = VehplayerNotificationListenerService.recentMessages()
         if (messages.isEmpty()) {
-            showEmpty("No recent messages", enablePrompt = false)
+            // Real-device feedback: this can show even with a large
+            // "unread" count inside the Messages app itself - that count
+            // is the app's own inbox state, not what's currently posted as
+            // a system notification. Once a notification's been seen or
+            // cleared on the phone, there's nothing left for a
+            // NotificationListenerService to read (no API reads the
+            // app's actual inbox generically, see this class's doc
+            // comment) - explain that rather than let it read as broken.
+            showEmpty(
+                "No recent messages",
+                enablePrompt = false,
+                subtext = "Shows new messages as they arrive, not your full inbox",
+            )
             return
         }
         emptyState.visibility = View.GONE
@@ -103,10 +121,12 @@ class MessagesOverlayView @JvmOverloads constructor(
         onDismiss?.invoke()
     }
 
-    private fun showEmpty(message: String, enablePrompt: Boolean) {
+    private fun showEmpty(message: String, enablePrompt: Boolean, subtext: String?) {
         scroll.visibility = View.GONE
         emptyState.visibility = View.VISIBLE
         emptyText.text = message
+        emptySubtext.text = subtext
+        emptySubtext.visibility = if (subtext != null) View.VISIBLE else View.GONE
         emptyState.setOnClickListener {
             if (enablePrompt) context.startActivity(NotificationAccess.settingsIntent().addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         }

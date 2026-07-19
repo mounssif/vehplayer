@@ -82,9 +82,22 @@ class NavigateMapFragment : Fragment(R.layout.fragment_navigate_map) {
             mapView.mapboxMap.flyTo(CameraOptions.Builder().center(origin).zoom(15.0).build())
         }
 
+        view.findViewById<View>(R.id.navAppSettingsButton).setOnClickListener {
+            (requireActivity() as CarDashboardActivity).openNavAppPicker()
+        }
+
         destinationPill.setOnClickListener {
             val origin = lastKnownOrigin ?: mapView.mapboxMap.cameraState.center
             (requireActivity() as CarDashboardActivity).openDestinationSearch(origin) { destination, label ->
+                // Real user feedback: not everyone wants vehplayer's own map
+                // rendering. If a real installed nav app is chosen
+                // (NavAppPreference), hand it off there instead of drawing
+                // an in-app route.
+                val externalPackage = NavAppPreference.selectedPackage(requireContext())
+                if (externalPackage != null) {
+                    NavAppPreference.launchExternal(requireContext(), externalPackage, destination, label)
+                    return@openDestinationSearch
+                }
                 destinationPill.text = label
                 searchErrorText.visibility = View.GONE
                 routeInfoPill.visibility = View.GONE

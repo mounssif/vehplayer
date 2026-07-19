@@ -209,13 +209,20 @@ class PhoneOverlayView @JvmOverloads constructor(
             contactRowsByLetter.getOrPut(letter) { row }
         }
 
+        // Real-device feedback: 10sp dash_text_muted against dash_bg was
+        // functionally invisible (worked, couldn't be seen). Bumped size,
+        // switched to full-contrast text plus bold weight, and the strip
+        // itself gets a background so it reads as a real control instead
+        // of blending into the black background.
+        azIndex.setBackgroundColor(context.getColor(R.color.dash_surface))
         contactRowsByLetter.keys.sorted().forEach { letter ->
             azIndex.addView(
                 TextView(context).apply {
                     text = letter.toString()
-                    textSize = 10f
+                    textSize = 13f
+                    typeface = android.graphics.Typeface.DEFAULT_BOLD
                     gravity = android.view.Gravity.CENTER
-                    setTextColor(context.getColor(R.color.dash_text_muted))
+                    setTextColor(context.getColor(R.color.dash_text_primary))
                     layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f)
                 },
             )

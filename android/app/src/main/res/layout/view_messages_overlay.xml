@@ -74,6 +74,19 @@
             android:textColor="@color/dash_text_muted"
             android:textSize="16sp"
             android:text="No recent messages" />
+
+        <TextView
+            android:id="@+id/messagesEmptySubtext"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:layout_marginHorizontal="32dp"
+            android:gravity="center"
+            android:fontFamily="@font/space_grotesk_regular"
+            android:textColor="@color/dash_text_muted"
+            android:alpha="0.7"
+            android:textSize="13sp"
+            android:visibility="gone" />
     </LinearLayout>
 
     <androidx.core.widget.NestedScrollView
