@@ -43,6 +43,10 @@ import kotlinx.coroutines.withContext
  */
 class MainActivity : AppCompatActivity() {
 
+    private companion object {
+        const val UPDATE_POLL_INTERVAL_MS = 5 * 60_000L
+    }
+
     private lateinit var statusView: TextView
 
     // Boot-time placeholder only: no car has connected yet when capture
@@ -53,6 +57,8 @@ class MainActivity : AppCompatActivity() {
     private var carHeight = 800
 
     private lateinit var updateBannerContainer: LinearLayout
+    private var updatePollJob: kotlinx.coroutines.Job? = null
+    private var shownUpdateVersionCode: Int? = null
 
     // Set by onStartClicked() when ReachabilityLadder finds a real global
     // IPv6 address (tier (a)) - awaitHttpServerAndShowUrl() must use THIS,
@@ -162,24 +168,40 @@ class MainActivity : AppCompatActivity() {
             "vehplayer ${BuildConfig.VERSION_NAME} (build ${BuildConfig.VERSION_CODE})"
 
         setStatus(buildInitialStatus())
-
-        checkForUpdate()
     }
 
     /**
      * Best-effort, silent unless an update is actually found: no banner, no
-     * dialog, on failure. Runs once per launch, cheap enough not to need
-     * debouncing/caching for how infrequently this app is opened.
+     * dialog, on failure. Polls while this screen is visible (not just once
+     * per onCreate) - a real user kept the app open across a release and the
+     * banner never appeared until a force-close, because the process (and
+     * this Activity instance) had survived the whole time.
      */
-    private fun checkForUpdate() {
-        CoroutineScope(Dispatchers.IO).launch {
-            val update = UpdateChecker.checkBlocking() ?: return@launch
-            if (update.versionCode <= BuildConfig.VERSION_CODE) return@launch
-            withContext(Dispatchers.Main) { showUpdateBanner(update) }
+    override fun onResume() {
+        super.onResume()
+        updatePollJob = CoroutineScope(Dispatchers.IO).launch {
+            while (true) {
+                val update = UpdateChecker.checkBlocking()
+                if (update != null && update.versionCode > BuildConfig.VERSION_CODE) {
+                    withContext(Dispatchers.Main) { showUpdateBanner(update) }
+                }
+                delay(UPDATE_POLL_INTERVAL_MS)
+            }
         }
     }
 
+    override fun onPause() {
+        updatePollJob?.cancel()
+        updatePollJob = null
+        super.onPause()
+    }
+
     private fun showUpdateBanner(update: UpdateChecker.UpdateInfo) {
+        // Poll loop can find the same (or a newer) release repeatedly; keep
+        // exactly one banner, replacing it only when the version changes.
+        if (update.versionCode == shownUpdateVersionCode) return
+        shownUpdateVersionCode = update.versionCode
+        updateBannerContainer.removeAllViews()
         val banner = LayoutInflater.from(this).inflate(R.layout.item_update_banner, updateBannerContainer, false)
         banner.findViewById<View>(R.id.updateBannerButton).setOnClickListener { startUpdate(update) }
         updateBannerContainer.addView(banner)

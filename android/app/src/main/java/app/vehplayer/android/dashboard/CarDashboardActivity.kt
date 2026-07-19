@@ -13,6 +13,7 @@ import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.widget.FrameLayout
 import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.ActivityResult
@@ -49,18 +50,16 @@ class CarDashboardActivity : AppCompatActivity() {
     private val clockHandler = Handler(Looper.getMainLooper())
     private lateinit var clockText: TextView
     private lateinit var heroPager: ViewPager2
-    private lateinit var dotNowPlaying: View
-    private lateinit var dotNavigate: View
+    private lateinit var heroPagerAdapter: HeroPagerAdapter
+    private lateinit var heroPageDots: LinearLayout
     private lateinit var destinationSearchOverlay: DestinationSearchOverlayView
     private lateinit var messagesOverlay: MessagesOverlayView
     private lateinit var phoneOverlay: PhoneOverlayView
     private lateinit var navAppPicker: NavAppPickerView
+    private lateinit var widgetPicker: WidgetPickerOverlayView
 
-    private lateinit var pinnedWidgetHost: PinnedWidgetHost
-    private lateinit var widgetPlaceholder: View
-    private lateinit var widgetHostContainer: FrameLayout
-    private lateinit var widgetUnpinButton: View
-    private var currentWidgetView: android.appwidget.AppWidgetHostView? = null
+    internal lateinit var pinnedWidgetHost: PinnedWidgetHost
+        private set
 
     // Set right before launching the picker/configure intents and read back
     // in their result handlers - more robust across OEM widget-picker
@@ -71,10 +70,6 @@ class CarDashboardActivity : AppCompatActivity() {
     private val phonePermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
     ) { phoneOverlay.refresh() }
-
-    private val widgetPickLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult(),
-    ) { result -> handleWidgetPickResult(result) }
 
     private val widgetBindLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
@@ -97,8 +92,7 @@ class CarDashboardActivity : AppCompatActivity() {
         goEdgeToEdgeImmersive()
 
         clockText = findViewById(R.id.clockText)
-        dotNowPlaying = findViewById(R.id.dotNowPlaying)
-        dotNavigate = findViewById(R.id.dotNavigate)
+        heroPageDots = findViewById(R.id.heroPageDots)
         destinationSearchOverlay = findViewById(R.id.destinationSearchOverlay)
         destinationSearchOverlay.onDismiss = { destinationSearchOverlay.close() }
         messagesOverlay = findViewById(R.id.messagesOverlay)
@@ -110,12 +104,9 @@ class CarDashboardActivity : AppCompatActivity() {
         navAppPicker.onDismiss = { navAppPicker.close() }
 
         pinnedWidgetHost = PinnedWidgetHost(this)
-        widgetPlaceholder = findViewById(R.id.widgetPlaceholder)
-        widgetHostContainer = findViewById(R.id.widgetHostContainer)
-        widgetUnpinButton = findViewById(R.id.widgetUnpinButton)
-        widgetPlaceholder.setOnClickListener { startWidgetPickFlow() }
-        widgetUnpinButton.setOnClickListener { unpinWidget() }
-        pinnedWidgetHost.pinnedWidgetId()?.let { renderPinnedWidget(it) }
+        widgetPicker = findViewById(R.id.widgetPicker)
+        widgetPicker.onDismiss = { widgetPicker.close() }
+        widgetPicker.onWidgetChosen = { info -> handleWidgetChosen(info) }
 
         onBackPressedDispatcher.addCallback(
             this,
@@ -126,6 +117,7 @@ class CarDashboardActivity : AppCompatActivity() {
                         messagesOverlay.visibility == View.VISIBLE -> messagesOverlay.close()
                         phoneOverlay.visibility == View.VISIBLE -> phoneOverlay.close()
                         navAppPicker.visibility == View.VISIBLE -> navAppPicker.close()
+                        widgetPicker.visibility == View.VISIBLE -> widgetPicker.close()
                         else -> {
                             isEnabled = false
                             onBackPressedDispatcher.onBackPressed()
@@ -135,19 +127,18 @@ class CarDashboardActivity : AppCompatActivity() {
             },
         )
 
+        heroPagerAdapter = HeroPagerAdapter(this).apply {
+            setWidgetIds(pinnedWidgetHost.pinnedWidgetIds())
+        }
         heroPager = findViewById<ViewPager2>(R.id.heroPager).apply {
-            adapter = HeroPagerAdapter(this@CarDashboardActivity)
+            adapter = heroPagerAdapter
             registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
                 override fun onPageSelected(position: Int) {
-                    dotNowPlaying.setBackgroundResource(
-                        if (position == 0) R.drawable.dash_dot_active else R.drawable.dash_dot_inactive,
-                    )
-                    dotNavigate.setBackgroundResource(
-                        if (position == 1) R.drawable.dash_dot_active else R.drawable.dash_dot_inactive,
-                    )
+                    refreshPageDots(position)
                 }
             })
         }
+        refreshPageDots(heroPager.currentItem)
 
         intent.getStringExtra(EXTRA_CONNECTION_URL)?.let { url ->
             findViewById<TextView>(R.id.connectionUrlText).apply {
@@ -232,45 +223,24 @@ class CarDashboardActivity : AppCompatActivity() {
         navAppPicker.open()
     }
 
-    /**
-     * ACTION_APPWIDGET_PICK just lets the user choose a provider - it does
-     * NOT reliably grant BIND_APPWIDGET on its own (verified live on the
-     * emulator: skipping the explicit bind step below rendered the
-     * framework's own "Couldn't add widget." fallback content instead of
-     * the real widget, even though the pick+configure round trip completed
-     * normally). [AppWidgetManager.bindAppWidgetIdIfAllowed] is tried first
-     * (silently succeeds for providers this app is already trusted for);
-     * if it returns false, [AppWidgetManager.ACTION_APPWIDGET_BIND] shows
-     * the real one-time consent dialog, the same mechanism every
-     * third-party launcher uses.
-     */
-    private fun startWidgetPickFlow() {
-        val widgetId = pinnedWidgetHost.allocateWidgetId()
-        pendingWidgetId = widgetId
-        val pickIntent = Intent(AppWidgetManager.ACTION_APPWIDGET_PICK).apply {
-            putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId)
-        }
-        try {
-            widgetPickLauncher.launch(pickIntent)
-        } catch (e: ActivityNotFoundException) {
-            pendingWidgetId = null
-            pinnedWidgetHost.appWidgetHost.deleteAppWidgetId(widgetId)
-            android.util.Log.w("CarDashboardActivity", "no widget picker available on this device", e)
-        }
+    /** Called by PinWidgetSlideFragment's placeholder slide. */
+    internal fun startWidgetPickFlow() {
+        widgetPicker.open()
     }
 
-    private fun handleWidgetPickResult(result: ActivityResult) {
-        val widgetId = pendingWidgetId
-        pendingWidgetId = null
-        if (widgetId == null || result.resultCode != Activity.RESULT_OK) {
-            widgetId?.let { pinnedWidgetHost.appWidgetHost.deleteAppWidgetId(it) }
-            return
-        }
-        val info = pinnedWidgetHost.appWidgetManager.getAppWidgetInfo(widgetId)
-        if (info == null) {
-            pinnedWidgetHost.appWidgetHost.deleteAppWidgetId(widgetId)
-            return
-        }
+    /**
+     * Our own picker (WidgetPickerOverlayView, see its doc for why the
+     * system ACTION_APPWIDGET_PICK Activity was dropped) only chooses a
+     * provider - binding still needs real consent.
+     * [AppWidgetManager.bindAppWidgetIdIfAllowed] is tried first (silently
+     * succeeds for providers this app is already trusted for); if it
+     * returns false, [AppWidgetManager.ACTION_APPWIDGET_BIND] shows the
+     * one-time consent dialog, the same mechanism every third-party
+     * launcher uses.
+     */
+    private fun handleWidgetChosen(info: android.appwidget.AppWidgetProviderInfo) {
+        widgetPicker.close()
+        val widgetId = pinnedWidgetHost.allocateWidgetId()
         if (pinnedWidgetHost.appWidgetManager.bindAppWidgetIdIfAllowed(widgetId, info.provider)) {
             proceedPastBind(widgetId, info)
             return
@@ -348,30 +318,58 @@ class CarDashboardActivity : AppCompatActivity() {
     }
 
     private fun finalizePinnedWidget(widgetId: Int) {
-        pinnedWidgetHost.persistPinned(widgetId)
-        renderPinnedWidget(widgetId)
+        pinnedWidgetHost.addPinned(widgetId)
+        refreshWidgetSlides()
+        // Land on the freshly pinned widget's slide so the result of the
+        // whole pick/bind/configure flow is immediately visible.
+        heroPagerAdapter.positionOfWidget(widgetId)
+            .takeIf { it >= 0 }
+            ?.let { heroPager.setCurrentItem(it, true) }
     }
 
-    private fun renderPinnedWidget(widgetId: Int) {
-        val hostView = pinnedWidgetHost.createHostView(widgetId) ?: return
-        currentWidgetView?.let { widgetHostContainer.removeView(it) }
-        widgetHostContainer.addView(
-            hostView,
-            FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT),
-        )
-        currentWidgetView = hostView
-        widgetPlaceholder.visibility = View.GONE
-        widgetHostContainer.visibility = View.VISIBLE
-        widgetUnpinButton.visibility = View.VISIBLE
+    /** Called by WidgetSlideFragment's unpin button. */
+    internal fun unpinWidget(widgetId: Int) {
+        pinnedWidgetHost.removePinned(widgetId)
+        refreshWidgetSlides()
     }
 
-    private fun unpinWidget() {
-        currentWidgetView?.let { widgetHostContainer.removeView(it) }
-        currentWidgetView = null
-        pinnedWidgetHost.clearPinned()
-        widgetHostContainer.visibility = View.GONE
-        widgetUnpinButton.visibility = View.GONE
-        widgetPlaceholder.visibility = View.VISIBLE
+    private fun refreshWidgetSlides() {
+        heroPagerAdapter.setWidgetIds(pinnedWidgetHost.pinnedWidgetIds())
+        refreshPageDots(heroPager.currentItem)
+    }
+
+    /**
+     * Rebuilds the dot strip - page count varies with pinned widgets. Each
+     * dot is tappable (with a touch target much larger than the 6dp visual):
+     * the Navigate page's embedded MapView consumes horizontal drags for map
+     * panning (verified live), so swiping is not a reliable way to get PAST
+     * that page - tapping a dot is the guaranteed path to the widget slides.
+     */
+    private fun refreshPageDots(selected: Int) {
+        // Posted, not run inline: ViewPager2 fires onPageSelected during its
+        // own initial layout pass, where the freshly-added dots' requestLayout
+        // is silently dropped and they stay unmeasured at 0x0 (found live via
+        // `dumpsys activity top` showing the children dirty at 0,36-0,36).
+        heroPageDots.post {
+            heroPageDots.removeAllViews()
+            val density = resources.displayMetrics.density
+            val dotSize = (6 * density).toInt()
+            val touchSize = (28 * density).toInt()
+            for (i in 0 until heroPagerAdapter.itemCount) {
+                val dot = View(this).apply {
+                    layoutParams = FrameLayout.LayoutParams(dotSize, dotSize, android.view.Gravity.CENTER)
+                    setBackgroundResource(
+                        if (i == selected) R.drawable.dash_dot_active else R.drawable.dash_dot_inactive,
+                    )
+                }
+                val touchTarget = FrameLayout(this).apply {
+                    layoutParams = LinearLayout.LayoutParams(touchSize, touchSize)
+                    addView(dot)
+                    setOnClickListener { heroPager.setCurrentItem(i, true) }
+                }
+                heroPageDots.addView(touchTarget)
+            }
+        }
     }
 
     private fun setUpTile(includeId: Int, iconRes: Int, label: String, onClick: () -> Unit) {

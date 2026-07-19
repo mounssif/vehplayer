@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The trailing empty "Pin a widget" hero slide (PinWidgetSlideFragment).
+     Whole slide is the tap target. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:gravity="center"
+    android:clickable="true"
+    android:focusable="true">
+
+    <ImageView
+        android:layout_width="56dp"
+        android:layout_height="56dp"
+        android:background="@drawable/bg_icon_badge_amber"
+        android:padding="14dp"
+        android:src="@drawable/ic_add"
+        android:importantForAccessibility="no"
+        app:tint="@color/dash_accent_amber" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:fontFamily="@font/space_grotesk_medium"
+        android:textColor="@color/dash_text_primary"
+        android:textSize="19sp"
+        android:text="Pin a widget" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:fontFamily="@font/space_grotesk_regular"
+        android:textColor="@color/dash_text_muted"
+        android:textSize="13sp"
+        android:text="Any app's widget, full size on this card" />
+
+</LinearLayout>

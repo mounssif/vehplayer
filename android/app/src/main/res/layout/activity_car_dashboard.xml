@@ -59,28 +59,20 @@
             android:layout_width="match_parent"
             android:layout_height="match_parent" />
 
+        <!-- One dot per pager page, built dynamically (page count varies
+             with pinned widgets) - see CarDashboardActivity.refreshPageDots.
+             elevation keeps the strip above the pager's pages regardless of
+             what a page renders (verified live: without it, some pages drew
+             over the dots). -->
         <LinearLayout
             android:id="@+id/heroPageDots"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="bottom|center_horizontal"
-            android:layout_marginBottom="14dp"
+            android:layout_marginBottom="8dp"
             android:orientation="horizontal"
-            android:gravity="center">
-
-            <View
-                android:id="@+id/dotNowPlaying"
-                android:layout_width="6dp"
-                android:layout_height="6dp"
-                android:background="@drawable/dash_dot_active" />
-
-            <View
-                android:id="@+id/dotNavigate"
-                android:layout_width="6dp"
-                android:layout_height="6dp"
-                android:layout_marginStart="8dp"
-                android:background="@drawable/dash_dot_inactive" />
-        </LinearLayout>
+            android:gravity="center"
+            android:elevation="4dp" />
     </FrameLayout>
 
     <TextView
@@ -131,13 +123,6 @@
             android:layout_height="0dp"
             android:layout_weight="1"
             android:layout_marginTop="14dp" />
-
-        <include
-            layout="@layout/dash_tile_widget"
-            android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1"
-            android:layout_marginTop="14dp" />
     </LinearLayout>
 
     <!-- Full-screen destination search (text field + live suggestions +
@@ -169,6 +154,16 @@
 
     <app.vehplayer.android.dashboard.PhoneOverlayView
         android:id="@+id/phoneOverlay"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:visibility="gone"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <app.vehplayer.android.dashboard.WidgetPickerOverlayView
+        android:id="@+id/widgetPicker"
         android:layout_width="0dp"
         android:layout_height="0dp"
         android:visibility="gone"

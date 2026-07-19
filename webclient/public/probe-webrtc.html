@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>vehplayer WebRTC probe</title>
+<!--
+  In-car WebRTC transport probe (docs/NEXT_SESSION.md session 7 wrap-up,
+  docs/ARCHITECTURE.md §7). One page, five minutes of car time, settles the
+  post-ingress-discard direction. Self-contained static file, deployed to
+  veh.modev.be via the normal webclient deploy (vite copies public/ into
+  dist/ verbatim).
+
+  Every result is rendered HUGE so it can be read/photographed on the car
+  screen without adb. The phone must be streaming (Start tapped) so
+  HttpAssetServer (tcp/8080-8083) and ProbeStunServer (udp/3478) are up.
+-->
+<style>
+  :root { --bg:#14120F; --card:#211E19; --text:#F5F0E6; --muted:#948E82;
+          --ok:#5dbb63; --fail:#e0645c; --warn:#F2A93B; }
+  * { box-sizing:border-box; }
+  body { font-family:system-ui,sans-serif; background:var(--bg); color:var(--text);
+         margin:0; padding:20px; }
+  h1 { font-size:26px; margin:0 0 4px; }
+  .sub { color:var(--muted); margin:0 0 18px; font-size:15px; }
+  .row { background:var(--card); border-radius:14px; padding:14px 18px; margin-bottom:10px;
+         display:flex; align-items:center; gap:16px; }
+  .status { font-size:30px; font-weight:800; min-width:150px; text-align:center;
+            border-radius:10px; padding:8px 4px; background:#000; }
+  .PENDING { color:var(--muted); } .RUNNING { color:var(--warn); }
+  .PASS { color:var(--ok); } .FAIL { color:var(--fail); }
+  .WARN, .SKIP { color:var(--warn); }
+  .label { font-size:20px; font-weight:600; }
+  .detail { color:var(--muted); font-size:15px; word-break:break-all; }
+  .inputs { background:var(--card); border-radius:14px; padding:14px 18px; margin-bottom:14px; }
+  input { font-size:22px; padding:8px 10px; border-radius:8px; border:1px solid #444;
+          background:#000; color:var(--text); width:260px; }
+  button { font-size:22px; padding:10px 22px; border-radius:10px; border:0;
+           background:var(--warn); color:#14120F; font-weight:700; }
+  #log { font:12px/1.5 monospace; color:var(--muted); background:#000; border-radius:10px;
+         padding:10px; margin-top:16px; max-height:180px; overflow:auto; white-space:pre-wrap; }
+</style>
+</head>
+<body>
+<h1>vehplayer WebRTC probe</h1>
+<p class="sub" id="env"></p>
+
+<div class="inputs">
+  <label class="label">Phone hotspot IP:&nbsp;</label>
+  <input id="phoneIp" placeholder="e.g. 192.168.146.68" inputmode="decimal" />
+  <label class="label">&nbsp;HTTP port:&nbsp;</label>
+  <input id="httpPort" value="8080" inputmode="numeric" style="width:110px" />
+  <button id="runBtn">RUN ALL</button>
+  <div class="detail" style="margin-top:8px">
+    The phone's own address on its hotspot network - shown in the vehplayer app,
+    usually also this device's default gateway. Phone must be streaming (Start
+    tapped) so its HTTP, WS (8787) and STUN (3478) probe servers are up. HTTP
+    port is whatever the app's shown /go URL says - 8080 normally, 8081+ after
+    the port-fallback path (a known-normal state after an app restart).
+  </div>
+</div>
+
+<div id="rows"></div>
+<div id="log"></div>
+
+<script>
+'use strict';
+const log = (m) => {
+  console.log('[probe]', m);
+  const el = document.getElementById('log');
+  el.textContent += m + '\n';
+  el.scrollTop = el.scrollHeight;
+};
+
+const TESTS = [
+  ['api',      'WebRTC API present (RTCPeerConnection + DataChannel)'],
+  ['ice',      'ICE candidate gathering (no servers) + mDNS obfuscation check'],
+  ['loopback', 'In-page loopback: data channel round trip'],
+  ['stunPub',  'UDP out to public STUN (control test, needs internet)'],
+  ['stunPhone','UDP to PHONE on hotspot IP (THE test - stun:<ip>:3478)'],
+  ['fetch',    'HTTP fetch to phone hotspot IP (/go, port above)'],
+  ['ws',       'WebSocket to phone hotspot IP (tcp/8787)'],
+];
+const rows = {};
+for (const [id, label] of TESTS) {
+  const div = document.createElement('div');
+  div.className = 'row';
+  div.innerHTML = `<div class="status PENDING" id="st_${id}">WAIT</div>
+    <div><div class="label">${label}</div><div class="detail" id="dt_${id}"></div></div>`;
+  document.getElementById('rows').appendChild(div);
+  rows[id] = div;
+}
+function setResult(id, status, detail) {
+  const st = document.getElementById('st_' + id);
+  st.textContent = status;
+  st.className = 'status ' + status;
+  if (detail !== undefined) document.getElementById('dt_' + id).textContent = detail;
+  log(`${id}: ${status} ${detail || ''}`);
+}
+
+// --- environment banner ---
+(() => {
+  const cr = (navigator.userAgent.match(/Chrome\/(\d+)/) || [])[1];
+  let env = `${location.protocol}//${location.host} - Chromium ${cr || '?'} - ${navigator.userAgent}`;
+  document.getElementById('env').textContent = env;
+  log('UA: ' + navigator.userAgent);
+  if (location.protocol === 'https:') {
+    log('WARNING: page loaded over https - the fetch/WS rows below will be blocked as ' +
+        'mixed content regardless of any Tesla-side policy. Reload via http:// for those ' +
+        'two rows; the WebRTC/STUN rows are NOT affected by mixed content.');
+  }
+})();
+
+const phoneIpInput = document.getElementById('phoneIp');
+phoneIpInput.value = localStorage.getItem('probePhoneIp') || '';
+
+// --- test 1: API presence ---
+function testApi() {
+  const ok = typeof RTCPeerConnection === 'function';
+  let dcOk = false;
+  if (ok) {
+    try { const pc = new RTCPeerConnection(); dcOk = !!pc.createDataChannel('t'); pc.close(); }
+    catch (e) { log('pc construct failed: ' + e); }
+  }
+  setResult('api', ok && dcOk ? 'PASS' : 'FAIL',
+    `RTCPeerConnection=${ok} createDataChannel=${dcOk}`);
+  return ok && dcOk;
+}
+
+// --- test 2: ICE gathering, no servers; reports candidate types + mDNS ---
+function testIceGathering() {
+  return new Promise((resolve) => {
+    setResult('ice', 'RUNNING');
+    const pc = new RTCPeerConnection();
+    pc.createDataChannel('probe');
+    const cands = [];
+    const finish = () => {
+      pc.close();
+      if (!cands.length) {
+        setResult('ice', 'FAIL', 'gathering produced zero candidates');
+        return resolve(false);
+      }
+      const mdns = cands.filter(c => c.includes('.local')).length;
+      const host = cands.filter(c => c.includes(' typ host')).length;
+      setResult('ice', 'PASS',
+        `${cands.length} candidate(s), ${host} host, ${mdns} mDNS-obfuscated (.local). ` +
+        (mdns ? 'mDNS obfuscation ON (expected; phone side answers via prflx, not a blocker).'
+              : 'no mDNS obfuscation.'));
+      resolve(true);
+    };
+    pc.onicecandidate = (e) => {
+      if (!e.candidate) return finish();
+      cands.push(e.candidate.candidate);
+      log('cand: ' + e.candidate.candidate);
+    };
+    pc.createOffer().then(o => pc.setLocalDescription(o))
+      .catch(e => { setResult('ice', 'FAIL', String(e)); resolve(false); });
+    setTimeout(finish, 8000);
+  });
+}
+
+// --- test 3: loopback data channel between two in-page peers ---
+function testLoopback() {
+  return new Promise((resolve) => {
+    setResult('loopback', 'RUNNING');
+    const t0 = performance.now();
+    const a = new RTCPeerConnection(), b = new RTCPeerConnection();
+    const done = (ok, detail) => {
+      a.close(); b.close();
+      setResult('loopback', ok ? 'PASS' : 'FAIL', detail);
+      resolve(ok);
+    };
+    const timer = setTimeout(() => done(false, 'timed out after 10s'), 10000);
+    a.onicecandidate = e => e.candidate && b.addIceCandidate(e.candidate).catch(()=>{});
+    b.onicecandidate = e => e.candidate && a.addIceCandidate(e.candidate).catch(()=>{});
+    const dc = a.createDataChannel('rt');
+    dc.onopen = () => dc.send('ping');
+    b.ondatachannel = (e) => {
+      e.channel.onmessage = (m) => e.channel.send(m.data === 'ping' ? 'pong' : m.data);
+    };
+    dc.onmessage = (m) => {
+      if (m.data === 'pong') {
+        clearTimeout(timer);
+        done(true, `open+round-trip in ${(performance.now() - t0).toFixed(0)}ms`);
+      }
+    };
+    a.createOffer().then(o => a.setLocalDescription(o))
+      .then(() => b.setRemoteDescription(a.localDescription))
+      .then(() => b.createAnswer()).then(ans => b.setLocalDescription(ans))
+      .then(() => a.setRemoteDescription(b.localDescription))
+      .catch(e => { clearTimeout(timer); done(false, String(e)); });
+  });
+}
+
+// --- STUN reachability: PASS iff a srflx candidate arrives from that server ---
+function stunTest(id, stunUrl, timeoutMs) {
+  return new Promise((resolve) => {
+    setResult(id, 'RUNNING', stunUrl);
+    const t0 = performance.now();
+    let pc;
+    try { pc = new RTCPeerConnection({ iceServers: [{ urls: stunUrl }] }); }
+    catch (e) { setResult(id, 'FAIL', 'config rejected: ' + e); return resolve(false); }
+    pc.createDataChannel('probe');
+    let got = false;
+    const finish = (ok, detail) => {
+      if (got) return; got = true;
+      pc.close();
+      setResult(id, ok ? 'PASS' : 'FAIL', detail);
+      resolve(ok);
+    };
+    pc.onicecandidate = (e) => {
+      if (!e.candidate) return finish(false, `gathering ended, no srflx from ${stunUrl}`);
+      log(`${id} cand: ` + e.candidate.candidate);
+      if (e.candidate.candidate.includes(' typ srflx ')) {
+        finish(true, `srflx candidate in ${(performance.now() - t0).toFixed(0)}ms - ` +
+          'a full UDP round trip to this STUN server succeeded');
+      }
+    };
+    pc.createOffer().then(o => pc.setLocalDescription(o))
+      .catch(e => finish(false, String(e)));
+    setTimeout(() => finish(false, `no srflx within ${timeoutMs / 1000}s (UDP blocked or server down)`),
+      timeoutMs);
+  });
+}
+
+// --- HTTP fetch to the phone (RFC1918 TCP) ---
+function testFetch(ip, port) {
+  return new Promise((resolve) => {
+    if (location.protocol === 'https:') {
+      setResult('fetch', 'SKIP', 'mixed content: reload this page via http:// to run this row');
+      return resolve(null);
+    }
+    setResult('fetch', 'RUNNING');
+    const t0 = performance.now();
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 8000);
+    // no-cors: an opaque response still proves TCP+HTTP reached the phone.
+    fetch(`http://${ip}:${port}/go`, { mode: 'no-cors', signal: ctrl.signal })
+      .then(() => {
+        clearTimeout(timer);
+        setResult('fetch', 'PASS', `response in ${(performance.now() - t0).toFixed(0)}ms`);
+        resolve(true);
+      })
+      .catch((e) => {
+        clearTimeout(timer);
+        const ms = (performance.now() - t0).toFixed(0);
+        setResult('fetch', 'FAIL',
+          `${e.name === 'AbortError' ? 'timed out' : e} after ${ms}ms ` +
+          '(fast fail = blocked by policy; 8s timeout = packets dropped)');
+        resolve(false);
+      });
+  });
+}
+
+// --- WebSocket to the phone (RFC1918 TCP, ws://) ---
+function testWs(ip) {
+  return new Promise((resolve) => {
+    if (location.protocol === 'https:') {
+      setResult('ws', 'SKIP', 'mixed content: ws:// from an https page is always blocked');
+      return resolve(null);
+    }
+    setResult('ws', 'RUNNING');
+    const t0 = performance.now();
+    let ws;
+    try { ws = new WebSocket(`ws://${ip}:8787/`); }
+    catch (e) { setResult('ws', 'FAIL', String(e)); return resolve(false); }
+    const timer = setTimeout(() => { ws.close();
+      setResult('ws', 'FAIL', 'timed out after 8s (packets dropped)'); resolve(false); }, 8000);
+    ws.onopen = () => {
+      clearTimeout(timer);
+      setResult('ws', 'PASS', `connected in ${(performance.now() - t0).toFixed(0)}ms`);
+      ws.close(); resolve(true);
+    };
+    ws.onerror = () => {
+      clearTimeout(timer);
+      setResult('ws', 'FAIL',
+        `error after ${(performance.now() - t0).toFixed(0)}ms (fast fail = refused/blocked)`);
+      resolve(false);
+    };
+  });
+}
+
+async function runAll() {
+  document.getElementById('log').textContent = '';
+  const ip = phoneIpInput.value.trim();
+  if (ip) localStorage.setItem('probePhoneIp', ip);
+  if (!testApi()) {
+    for (const id of ['ice','loopback','stunPub','stunPhone','fetch','ws'])
+      setResult(id, 'SKIP', 'no WebRTC API');
+    return;
+  }
+  await testIceGathering();
+  await testLoopback();
+  await stunTest('stunPub', 'stun:stun.l.google.com:19302', 8000);
+  if (ip) {
+    await stunTest('stunPhone', `stun:${ip}:3478`, 10000);
+    await testFetch(ip, document.getElementById('httpPort').value.trim() || '8080');
+    await testWs(ip);
+  } else {
+    for (const id of ['stunPhone','fetch','ws'])
+      setResult(id, 'SKIP', 'enter the phone hotspot IP first');
+  }
+  log('done. Photograph this screen.');
+}
+document.getElementById('runBtn').addEventListener('click', runAll);
+</script>
+</body>
+</html>

@@ -58,6 +58,187 @@
 > that section for the fix and how it was isolated from a second, unrelated
 > failure (this emulator's Google Play services stub can't render any
 > Google-widget content at all, not an app bug).
+> Session 8 (after the real-Tesla session below): all WebRTC pre-car
+> groundwork (research, probe page, phone STUN responder), plus a
+> feedback-driven rework moving pinned widgets into hero slides - see
+> the session 8 section.
+
+## Session 8: WebRTC probe built + widget slides rework (real user feedback round)
+
+Two tracks: the WebRTC direction from session 7's wrap-up got its full
+pre-car groundwork (research pass, probe page, phone-side STUN responder,
+all verified as far as a desk can verify), and a real-phone feedback round
+from the founder drove a rework of the widget/dashboard UX.
+
+### WebRTC research pass (backgrounded agent, all REPORTED unless tagged)
+
+- **WebRTC is available and functional in the Tesla browser - HIGH
+  confidence.** SideDisplay (sidedisplay.co, a shipping Mac/Windows→Tesla
+  extended-monitor product) explicitly runs "over WebRTC through the
+  built-in browser" at ~100ms latency over a laptop hotspot. TMC thread
+  151891 (May 2019, first Chromium firmware): WebRTC video decode worked
+  in videoconferencing sites; browser had no audio playback and no
+  camera/mic then. TeslaMirror's Play listing says its streaming "will be
+  changed from MJPEG to WebRTC & H.264" (planned, not confirmed shipped).
+- **Tesla's RFC1918 block is at the TCP-connect/packet layer, not URL
+  filtering**: teslamotors/fleet-telemetry issue #423 shows a public
+  hostname resolving to 192.168.0.100 timing out at `dial tcp` - so
+  hostname tricks don't help, and WSS to a private IP dies the same way.
+  A tesla-carplay GitHub project routes via 240.3.3.x (class E) with
+  iptables; SideDisplay's FAQ states the 10/8, 172.16/12, 192.168/16
+  block outright. Whether the block also covers **UDP** (ICE) is publicly
+  untested - that is exactly what the probe below settles.
+- **mDNS ICE obfuscation** (Chrome 76+, on regardless of http/https
+  origin): SDP-only - host candidates read `<uuid>.local`, but actual
+  connectivity checks go out from real sockets, so the phone side (which
+  will publish real, un-obfuscated candidates) discovers the car via
+  peer-reflexive candidates and ICE completes without anyone resolving
+  `.local` names. Verified live this session that desktop Chrome 147
+  obfuscates exactly this way (probe page output).
+- **Correction to the research agent's own conclusion, from session 7's
+  MEASURED data**: it recommended advertising the tier (c) CGNAT VPN
+  address in ICE. That is wrong on modern Android - the BPF
+  ingress-discard drops **UDP too** (`sIngressDiscardMap` covers TCP/UDP
+  both), so ICE to 100.99.9.1 dies exactly like HTTP did in the car.
+  The phone's ICE candidates must use the **AP interface's own RFC1918
+  address** (strong-host model permits it); the only open question is
+  whether *Tesla's* side refuses to send UDP to RFC1918, hence the probe.
+- **Highest-stakes unknown for a full WebRTC video track**: does Tesla's
+  Drive-mode `<video>` suppression also kill a WebRTC remote track? Zero
+  public evidence. If yes, the endgame is data-channel transport feeding
+  the existing WebCodecs-to-canvas pipeline (swap WS for RTCDataChannel,
+  keep everything else) - which sidesteps `<video>` entirely and is the
+  architecture-conservative option anyway.
+
+### WebRTC probe: built and desk-verified, needs one car visit + a deploy
+
+- **`webclient/public/probe-webrtc.html`** (vite copies it into `dist/`,
+  so it ships with the normal webclient deploy): huge photographable
+  PASS/FAIL rows - WebRTC API, ICE gathering + mDNS check, in-page
+  loopback data channel, UDP to public STUN (control), **UDP to the phone
+  via `stun:<phone-ip>:3478` (THE test)**, HTTP fetch to the phone
+  (editable port - remember the 8081 fallback state), WS to tcp/8787.
+  Detects https and marks the fetch/WS rows SKIP with a "reload via
+  http://" warning (mixed content would block them regardless of Tesla
+  policy; the WebRTC rows are immune to mixed content).
+- **`ProbeStunServer.kt`** (new, `net/`): minimal RFC 5389 Binding
+  responder on udp/3478, started/stopped with `CaptureService` alongside
+  HttpAssetServer, deliberately wildcard-bound (packets to the AP
+  interface's own address are delivered under strong-host; this is NOT
+  the ingress-discarded VPN-address path). **MEASURED on the emulator**:
+  full capture flow up, python STUN client through an emulator UDP
+  redirect got a correct Binding Success with XOR-MAPPED-ADDRESS
+  decoding to the right source address/port.
+- **Probe page MEASURED in desktop Chrome 147** (playwright + the real
+  emulator servers): API/ICE/loopback/public-STUN/fetch/WS rows all
+  behave, mDNS obfuscation observed live. The phone-STUN row FAILed only
+  in this desk rig because Chromium won't do STUN via loopback
+  (127.0.0.1) - known desk-rig limitation, not a page/responder bug; in
+  the car the STUN server sits on a real LAN address. Interpretation
+  guide for the car: public-STUN PASS + phone-STUN FAIL = Tesla blocks
+  UDP to RFC1918; both PASS = **WebRTC transport is GO**.
+- **NOT DONE - blocks the car test: veh.modev.be deploy.** wrangler is
+  unauthenticated in this environment (`wrangler login` never run, no
+  CLOUDFLARE_API_TOKEN). Founder: `make deploy-web` (or
+  `cd webclient && npm run build && npx wrangler deploy`), then in the
+  car open `http://veh.modev.be/probe-webrtc.html` (http, not https, so
+  the fetch/WS rows run), phone streaming first, type the phone's shown
+  IP + port, RUN ALL, photograph.
+
+### Widget slides rework (founder feedback with screenshots)
+
+Feedback was: a pinned WhatsApp widget in the small 4th tile was
+unreadable; "pin a widget" should live in the hero slides with an
+always-present empty placeholder slide (e.g. after the map); Google Maps
+was missing from the widget picker on the real phone even though the
+phone's own launcher offered it; and the Navigate slide should be
+replaceable by a maps widget. Built:
+
+- **Widgets are hero slides now**: `HeroPagerAdapter` is dynamic - Now
+  Playing, Navigate, one full-hero slide per pinned widget
+  (`WidgetSlideFragment`), and always a trailing "Pin a widget"
+  placeholder slide (`PinWidgetSlideFragment`). The 4th tile is gone
+  (tiles are back to Navigate/Phone/Messages). Multiple widgets pin as
+  multiple slides. `PinnedWidgetHost` persists an ordered id list
+  (legacy single-id pref migrates automatically). Each widget slide gets
+  `updateAppWidgetSize()` with the real hero dimensions so providers
+  render their large-cell layouts, and has its own unpin "x".
+- **Custom widget picker** (`WidgetPickerOverlayView`, same overlay
+  pattern as the others) replaces `ACTION_APPWIDGET_PICK`: built from
+  `AppWidgetManager.installedProviders`, grouped by app, car-styled.
+  Reason it exists: the system picker demonstrably omits providers - the
+  founder's Galaxy S23 picker had no Google Maps entry, and this
+  emulator's system picker (session 7) showed only Battery/At a
+  Glance/Analog while `installedProviders` lists both Google Maps
+  widgets ("Nearby Traffic", "Quickly find places nearby"), MEASURED
+  both places. Bind consent still goes through
+  `bindAppWidgetIdIfAllowed`/`ACTION_APPWIDGET_BIND` exactly as before
+  (including session 7's dont-trust-resultCode lesson).
+- **Real Maps widget content RENDERS on this emulator** - pinned "Nearby
+  Traffic" showed Google Maps' real RemoteViews ("Maps needs your
+  location" onboarding state) at full hero size. This softens session
+  7's "GMS stub can't render any Google widget" finding: that failure
+  was specific to those three providers' RemoteViews resources, not all
+  Google widgets. Content rendering is now MEASURED working for at least
+  one real-world widget.
+- **Two real bugs found live on the way**:
+  1. Page dots built from `onPageSelected` never rendered: ViewPager2
+     fires that callback *during its own initial layout pass*, where the
+     freshly-added dot views' requestLayout is silently dropped - they
+     stay unmeasured at 0x0 (`dumpsys activity top` showed them dirty).
+     Fixed by posting the dot rebuild out of the layout pass.
+  2. You cannot reliably swipe PAST the Navigate page: the embedded
+     Mapbox MapView consumes horizontal drags as map panning. The dot
+     strip is therefore tappable now (28dp touch targets around 6dp
+     dots) and is the guaranteed way to reach widget slides. Worth
+     remembering for any future page added after Navigate.
+- **Verified live end to end on the emulator**: pick (Maps) → bind →
+  slide inserted before placeholder → real content renders → survives
+  force-stop + relaunch (id-list persistence) → unpin reverts to
+  placeholder. Screenshots in the session log.
+- **Explicitly NOT built yet**: hiding/replacing the built-in Navigate
+  slide with a maps widget (the founder's "replace the navigate slide"
+  wish is only half-served by pinning a Maps widget as its own slide) -
+  needs a small setting + adapter flag, deferred. Also note the founder
+  reported the Navigate settings gear "gone" - it is still in the source
+  and wired (`fragment_navigate_map.xml` navAppSettingsButton →
+  `openNavAppPicker()`), so check on the real device whether it's a
+  z-order/visibility issue rather than assuming it was removed.
+
+### Smaller session 8 items
+
+- **Update banner now polls**: `MainActivity` re-checks GitHub releases
+  every 5 minutes while the screen is resumed (was: once in onCreate -
+  the founder kept the app open across a release and never saw the
+  banner until a force-close). Deduped by versionCode. Verified live on
+  the emulator: banner appeared on resume without a restart.
+- **"Tesla" removed from user-facing copy**: `activity_main.xml` tagline
+  is now "A car dashboard for your vehicle"; `brand.json`
+  tagline_primary updated + a tagline_note recording the founder call
+  (same nominative-use-only rule as Android Auto/CarPlay - "Tesla" only
+  in descriptive store/SEO comparison copy). Verified rendering live.
+- **CarPlay/Android Auto question (founder asked, with Ford CarPlay
+  photos)**: building CarPlay/AA apps or widgets is a hard no - it is
+  exactly the protocol dependency Lesson 1 and the scope-creep tripwires
+  forbid (template-locked categories, Apple entitlement/Google review
+  gates, and the TeslAA death-by-one-validation-change precedent). Cars
+  that have CarPlay/AA are a solved problem and not this product's
+  market; vehplayer exists for browser-cars without them. The *visual
+  style* of those photos (split view: map dominant + sidebar cards for
+  next-turn and now-playing) is fair game as design inspiration for our
+  own dashboard - logged as an open design direction, e.g. a combined
+  "driving" hero layout.
+
+### Still open after session 8
+
+- Founder: `make deploy-web` (wrangler auth needed), then the in-car
+  probe run (five minutes, photograph the rows).
+- Founder: APN protocol check (IPv4/IPv6) on the data SIM for tier (a).
+- In-app diagnostics screen (chosen tier, resolved address, "did
+  anything connect" counters) - still not built.
+- Tier (a) IPv6 end-to-end on the emulator - still not done.
+- Navigate slide replace/hide setting; real-device check of the
+  "missing" nav settings gear; the split-view driving layout direction.
 
 ## Session 7, part 2: FIRST REAL TESLA TEST - tier (c) is dead on modern Android, and we know exactly why
 

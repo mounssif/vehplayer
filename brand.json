@@ -7,7 +7,8 @@
       "reason": "Collides with an unrelated Swedish B2B app (verksamhetsplatsen.se, construction/project-management software, live on Play Store + App Store). Different Nice class, probably not a hard legal blocker, but the repo carried two names for a while and that already caused real confusion (see docs/NEXT_SESSION.md's 'phantom v1' note). Retired entirely as of session 6, not just a working codename anymore."
     }
   ],
-  "tagline_primary": "A car dashboard for your Tesla. Not a phone on a big screen.",
+  "tagline_primary": "A car dashboard for your vehicle. Not a phone on a big screen.",
+  "tagline_note": "Founder call (session 8): no 'Tesla' in user-facing hero/landing copy, same nominative-use-only rule as Android Auto/CarPlay - 'Tesla' only in descriptive comparison copy (store long description, SEO).",
   "taglines_supporting": [
     "Navigation, music and calls, laid out for a car screen. Your phone stays in your pocket.",
     "Nothing leaves the car. No cloud, no relay, no account.",

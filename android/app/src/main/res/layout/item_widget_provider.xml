@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:background="@drawable/bg_suggestion_item"
+    android:paddingHorizontal="4dp"
+    android:paddingVertical="16dp"
+    android:focusable="true"
+    android:clickable="true">
+
+    <ImageView
+        android:id="@+id/widgetProviderIcon"
+        android:layout_width="32dp"
+        android:layout_height="32dp"
+        android:importantForAccessibility="no" />
+
+    <TextView
+        android:id="@+id/widgetProviderLabel"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:layout_marginStart="14dp"
+        android:fontFamily="@font/space_grotesk_medium"
+        android:textColor="@color/dash_text_primary"
+        android:textSize="17sp"
+        tools:text="Maps - Traffic nearby" />
+</LinearLayout>

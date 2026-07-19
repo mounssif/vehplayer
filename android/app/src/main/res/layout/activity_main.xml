@@ -32,7 +32,7 @@
             android:fontFamily="@font/space_grotesk_regular"
             android:textColor="@color/dash_text_muted"
             android:textSize="14sp"
-            android:text="A car dashboard for your Tesla" />
+            android:text="A car dashboard for your vehicle" />
 
         <!-- Update banner: inserted here at index 0 of its own container so
              it can be shown/hidden without disturbing the rest of the

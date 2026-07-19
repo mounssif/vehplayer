@@ -81,6 +81,7 @@ class CaptureService : Service() {
     private var baseHeight = 800
 
     private var httpServer: HttpAssetServer? = null
+    private var probeStunServer: app.vehplayer.android.net.ProbeStunServer? = null
 
     /**
      * Null until [startHttpServerWithRetry] resolves a port. Owned here (a
@@ -159,6 +160,20 @@ class CaptureService : Service() {
         ServerHolder.server = localServer
 
         startHttpServerWithRetry()
+
+        // WebRTC in-car probe support (webclient probe-webrtc page +
+        // docs/NEXT_SESSION.md): answers STUN binding over UDP so the car
+        // browser's ICE gathering can prove UDP reachability to this phone.
+        // Best-effort - a bind failure (port held) only degrades the probe,
+        // never the capture session.
+        try {
+            val stun = app.vehplayer.android.net.ProbeStunServer()
+            stun.start()
+            probeStunServer = stun
+        } catch (e: Exception) {
+            android.util.Log.w("CaptureService", "probe STUN responder unavailable: ${e.message}")
+        }
+
         val (initW, initH) = scaledDims()
         startEncoderAndDisplay(projection, initW, initH, frameRateSteps[frameRateStepIndex])
 
@@ -304,6 +319,8 @@ class CaptureService : Service() {
         httpServer?.stop()
         httpServer = null
         httpServerPort = null
+        probeStunServer?.stop()
+        probeStunServer = null
         mediaProjection?.stop()
         mediaProjection = null
     }
