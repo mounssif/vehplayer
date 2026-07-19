@@ -19,20 +19,25 @@ import android.os.ParcelFileDescriptor
  *
  * No packet-forwarding loop reading [vpnInterface]'s file descriptor: this
  * is a LAN-side address-assignment trick, not a traffic-tunneling VPN.
- * Standard kernel IP routing delivers a packet arriving on any physical
- * interface (the hotspot AP link, in this case) to the local socket stack
- * whenever its destination address is configured on ANY local interface -
- * including a VpnService-assigned tun address - regardless of which wire
- * it physically arrived on. `HttpAssetServer`/`LocalMediaServer` already
- * bind wildcard (`NanoHTTPD(port)`, no explicit host), so once Android has
- * assigned [VIRTUAL_ADDRESS] here, a hotspot-connected car's connection to
- * it reaches that already-listening socket with no extra plumbing.
  *
- * **Not yet verified on a real Tesla** - the address range is evidence-
- * backed (see above), but this specific implementation has only run
- * against the emulator's own loopback-like networking, which cannot
- * reproduce a real phone-hotspot-to-car link. Confirm end-to-end on real
- * hardware before trusting this tier in the field.
+ * **MEASURED, session 7, real hardware (Galaxy S23 / Android 16 + real
+ * Model 3): this tier DOES NOT WORK on modern Android.** The original
+ * assumption ("standard kernel routing delivers any packet addressed to a
+ * locally-configured address regardless of arrival interface") is disproven
+ * by Android's BPF ingress-discard hardening: `dumpsys connectivity
+ * trafficcontroller` shows a literal `sIngressDiscardMap` entry pinning
+ * [VIRTUAL_ADDRESS] to tun0 as the only allowed ingress interface, so
+ * TCP/UDP from a hotspot/USB-tethered peer (the car) is dropped in BPF
+ * before ever reaching the TCP stack (confirmed: zero SYN-RECV during a
+ * live connection attempt; ICMP passes because the BPF check covers only
+ * TCP/UDP, which made ping a misleading success signal). This is
+ * anti-spoofing hardening for VPN addresses, not a bug, and there is no
+ * app-side workaround without root. On older Android versions that predate
+ * this hardening the trick may still work, which is why this tier stays in
+ * the ladder rather than being deleted - but tier (a) IPv6 is the only
+ * viable path on current Android. The emulator "verification" of this tier
+ * in session 6 was a false positive: a single virtual device can never
+ * exercise the cross-interface ingress path that the BPF check guards.
  */
 class VpnReachabilityService : VpnService() {
 
@@ -52,6 +57,20 @@ class VpnReachabilityService : VpnService() {
             Builder()
                 .addAddress(VIRTUAL_ADDRESS, 32)
                 .addRoute(VIRTUAL_ADDRESS, 32)
+                // Exclude this app itself from its own VPN. Without this, our
+                // HTTP/WS server sockets carry the VPN's fwmark (a VpnService
+                // applies to the owning app too by default), and Android's
+                // policy routing then forces their *reply* packets into the
+                // VPN routing table - which contains only VIRTUAL_ADDRESS/32
+                // and no route back to the hotspot client's subnet, so every
+                // SYN-ACK toward the car is silently dropped and the browser
+                // times out. Confirmed on a real phone (session 7): inbound
+                // SYNs reached the local stack fine (rule-0 local table),
+                // ICMP echo replies (kernel-generated, unmarked) made it back
+                // out, but TCP replies died. Excluding the app leaves our
+                // sockets unmarked so replies route via the tether table
+                // (hotspot subnet -> AP interface) like any normal service.
+                .addDisallowedApplication(packageName)
                 .setSession("vehplayer")
                 .setMtu(1500)
                 .establish()

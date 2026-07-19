@@ -59,6 +59,79 @@
 > failure (this emulator's Google Play services stub can't render any
 > Google-widget content at all, not an app bug).
 
+## Session 7, part 2: FIRST REAL TESLA TEST - tier (c) is dead on modern Android, and we know exactly why
+
+The single most important finding of the whole project so far, MEASURED
+end to end with the founder parked in the real Model 3, laptop
+USB-tethered to the real phone (Galaxy S23, SM-S911B, Android 16), live
+adb the whole time:
+
+1. **The real Tesla connected to the real hotspot and loaded the app's
+   shown URL (`http://100.99.9.1:8081/go`) → `ERR_CONNECTION_TIMED_OUT`.**
+   First-ever real-car attempt, session 6's tier (c) implementation, build
+   13.
+2. **Isolated it off the car entirely**: a laptop curl to the same address
+   over USB tethering timed out identically, while curl to the phone's
+   real tether-interface address (`10.162.212.228:8080`) got a normal HTTP
+   response, and ping to `100.99.9.1` got normal replies. So: not
+   Tesla-specific, not WiFi-specific, not a dead server - TCP specifically,
+   to the VPN address specifically, from any external device.
+3. **Found a real second bug on the way**: our own server sockets carried
+   the VPN fwmark (a VpnService applies to its owning app too by default),
+   which routes their reply packets into the VPN routing table - confirmed
+   live: table 1057 contained only `100.99.9.1/32 dev tun0`, no route back
+   to any tether subnet, so even if a SYN got through, the SYN-ACK died.
+   Fixed with `addDisallowedApplication(packageName)` in
+   `VpnReachabilityService` (verified live via `ip rule`: our uid 10310 now
+   excluded from the VPN uid ranges). **This fix is real and correct but
+   was not sufficient** - connections still timed out after it.
+4. **Root cause, with direct evidence**: zero `SYN-RECV` entries on the
+   phone during a live connection attempt (SYN never reaches the TCP
+   stack), and `dumpsys connectivity trafficcontroller` shows
+   `sIngressDiscardMap: [/::ffff:100.99.9.1]: 58(tun0), 58(tun0)` -
+   Android's BPF ingress-discard hardening (anti-spoofing for VPN
+   addresses, Android 14+ era) drops any TCP/UDP packet addressed to a VPN
+   address that arrives on any interface other than the tun itself. ICMP
+   is not covered by the check, which is exactly why ping "worked" and
+   made the routing look fine - **ping is a false success signal for this
+   entire class of problem, never trust it again as reachability
+   evidence**. `tether_offload_disabled` was already 1, ruling out the
+   Qualcomm IPA hardware-offload theory that was briefly the lead suspect.
+5. **Consequences**: the whole TeslAA/TeslaMirror-style virtual-IP
+   mechanism - the industry-standard trick this project's tier (c) copied,
+   evidence-backed from a shipping competitor - has been closed by Google
+   on modern Android. No app-side workaround without root. Tier (c) stays
+   in the codebase as a legacy-device (pre-hardening Android) fallback,
+   with its doc comment rewritten to state all of this. The emulator
+   "verification" in session 6 was a false positive - a single virtual
+   device can't exercise the cross-interface ingress path the BPF check
+   guards. **Tier (a) IPv6 is now the only viable path on current
+   Android**, and it should genuinely survive this hardening: the address
+   lives on the AP interface itself, which the strong-host model permits.
+6. **Tier (a) blocker found the same night**: the phone had zero IPv6 GUA
+   on cellular (checked `ip -6 addr` with WiFi off, cellular active,
+   dual SIM Orange B + Proximus). Either the active data SIM's carrier
+   doesn't do mobile IPv6 or the APN protocol is set IPv4-only. **Next
+   concrete step: founder checks APN protocol → IPv4/IPv6 on the data
+   SIM (and/or switches data to the other SIM), then re-check
+   `adb shell ip -6 addr` for a `2xxx:` address, then re-test in the
+   car.** Proximus mobile reportedly supports IPv6 (REPORTED, unverified);
+   Orange BE historically lagged.
+7. Also for the record: TeslaMirror's `TSL6.com` resolves to Cloudflare
+   (their CDN webclient, same pattern as our `veh.modev.be`), and their
+   public FAQ shows no explicit Android-14+ note - whether their
+   virtual-IP mode still works on current Android is unknown; their FAQ's
+   heavy "toggle hotspot off and on" troubleshooting suggests flakiness.
+   If they ARE broken on modern phones, tier (a) IPv6 becomes a genuine
+   competitive differentiator, not just a workaround.
+
+Also from this pass: the emulator-session earlier in session 7 hit a
+stale-`HttpAssetServer` port fallback on the real phone too (8080 held by
+a previous session's process → new session on 8081, both listening,
+`/go` URL correctly showing 8081) - worked as designed, but worth knowing
+when reading `netstat` output during debugging: two listeners is normal
+after a restart, the shown URL's port is the live one.
+
 ## Session 7: three non-hardware NEXT_SESSION items
 
 ### `MainActivity.localIpAddress()`: prefer the hotspot interface
