@@ -1,7 +1,6 @@
 package app.vehplayer.android.dashboard
 
 import android.content.Intent
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -12,6 +11,7 @@ import android.view.WindowInsetsController
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.viewpager2.widget.ViewPager2
 import app.vehplayer.android.R
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -39,6 +39,9 @@ class CarDashboardActivity : AppCompatActivity() {
     private val clockFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
     private val clockHandler = Handler(Looper.getMainLooper())
     private lateinit var clockText: TextView
+    private lateinit var heroPager: ViewPager2
+    private lateinit var dotNowPlaying: View
+    private lateinit var dotNavigate: View
 
     private val clockTick = object : Runnable {
         override fun run() {
@@ -53,6 +56,22 @@ class CarDashboardActivity : AppCompatActivity() {
         goEdgeToEdgeImmersive()
 
         clockText = findViewById(R.id.clockText)
+        dotNowPlaying = findViewById(R.id.dotNowPlaying)
+        dotNavigate = findViewById(R.id.dotNavigate)
+
+        heroPager = findViewById<ViewPager2>(R.id.heroPager).apply {
+            adapter = HeroPagerAdapter(this@CarDashboardActivity)
+            registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
+                override fun onPageSelected(position: Int) {
+                    dotNowPlaying.setBackgroundResource(
+                        if (position == 0) R.drawable.dash_dot_active else R.drawable.dash_dot_inactive,
+                    )
+                    dotNavigate.setBackgroundResource(
+                        if (position == 1) R.drawable.dash_dot_active else R.drawable.dash_dot_inactive,
+                    )
+                }
+            })
+        }
 
         intent.getStringExtra(EXTRA_CONNECTION_URL)?.let { url ->
             findViewById<TextView>(R.id.connectionUrlText).apply {
@@ -62,9 +81,10 @@ class CarDashboardActivity : AppCompatActivity() {
         }
 
         setUpTile(R.id.tileNavigation, R.drawable.ic_navigation, "Navigate") {
-            // Generic geo intent: lets the system offer whatever's installed
-            // (Maps, Waze, ...). Phase 3 replaces this with a saved choice.
-            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=")))
+            // Swipes the hero card to the embedded map page (heroPager,
+            // HeroPagerAdapter) instead of launching an external app - the
+            // "slide" the founder asked for, see NEXT_SESSION.md.
+            heroPager.setCurrentItem(1, true)
         }
         setUpTile(R.id.tilePhone, R.drawable.ic_phone, "Phone") {
             // ACTION_DIAL (not ACTION_CALL): opens the dialer pre-filled,

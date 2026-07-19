@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -10,6 +12,15 @@ plugins {
 val vehplayerVersionCode = (project.findProperty("vehplayerVersionCode") as String?)?.toIntOrNull() ?: 1
 val vehplayerVersionName = (project.findProperty("vehplayerVersionName") as String?) ?: "0.1.0-gate1"
 
+// Public Mapbox token (safe to ship, that's what the public scope is for),
+// baked in as BuildConfig so it's never hardcoded in source. Same
+// local.properties the downloads token and sdk.dir already live in.
+val localProperties = Properties().apply {
+    val f = rootProject.file("local.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
+val mapboxPublicToken: String = localProperties.getProperty("MAPBOX_PUBLIC_TOKEN") ?: ""
+
 android {
     namespace = "app.vehplayer.android"
     compileSdk = 35
@@ -21,6 +32,7 @@ android {
         targetSdk = 35
         versionCode = vehplayerVersionCode
         versionName = vehplayerVersionName
+        buildConfigField("String", "MAPBOX_PUBLIC_TOKEN", "\"$mapboxPublicToken\"")
     }
 
     // Pinned to a keystore committed in-repo (well-known debug credentials,
@@ -92,6 +104,19 @@ dependencies {
     // Dominant-color extraction from album art for the now-playing card's
     // ambient tint (Palette API), see CarDashboardActivity.
     implementation("androidx.palette:palette-ktx:1.0.0")
+
+    // Hero card swipes between Now Playing and Navigate (dashboard/CarDashboardActivity),
+    // each a Fragment so the embedded MapView gets correct lifecycle forwarding.
+    implementation("androidx.viewpager2:viewpager2:1.1.0")
+    implementation("androidx.fragment:fragment-ktx:1.8.2")
+
+    // Embedded live map for the Navigate page (dashboard/NavigateMapFragment):
+    // a real map rendered in our own UI, not another app's screen - Android has
+    // no API to embed a foreign app's UI the way CarPlay/Android Auto do.
+    implementation("com.mapbox.maps:android:11.8.0")
+
+    // Blue-dot "where am I" on the Navigate map.
+    implementation("com.google.android.gms:play-services-location:21.3.0")
 
     // Local-only WS server (ARCHITECTURE.md §1/§4). Hand-rolling a compliant
     // RFC 6455 server is a bad use of a Gate-2 session; this is a small,
