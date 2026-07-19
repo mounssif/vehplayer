@@ -246,10 +246,42 @@ replaceable by a maps widget. Built:
   non-production branches" to Disabled (it was Enabled with the version
   command equal to a production deploy, so a stray branch push would
   deploy to production) - not yet confirmed done.
-- **In-car probe run** (five minutes): phone streaming first, car
-  browser to `https://veh.modev.be/probe-webrtc`, enter the phone's
-  shown IP + port, RUN ALL, photograph the rows. Decisive row:
-  "UDP to PHONE". fetch/WS rows will SKIP over https (expected).
+- ~~In-car probe run~~ - **RAN SAME NIGHT, REAL TESLA (photos in
+  session log). Result: WebRTC works in the car; THE test is
+  inconclusive only because the phone's real AP address was unknown.**
+  MEASURED in the real car browser:
+  - **Tesla browser = Chromium 140** (`Chrome/140.0.7339.207`, X11
+    Linux x86_64 UA).
+  - **WebRTC API PASS, ICE gathering PASS, in-page loopback data
+    channel PASS (83-100ms)** - the full WebRTC stack functions in the
+    car.
+  - **ICE shows 1 real host candidate, 0 mDNS-obfuscated** - Tesla's
+    Chromium does NOT do mDNS obfuscation (simplifies the phone side).
+  - **UDP out to public STUN PASS (79-137ms), with the car's internet
+    running over the phone's hotspot** - so UDP across the hotspot
+    link itself works; Tesla's block did not stop UDP to a *public*
+    destination routed via the phone.
+  - **"UDP to PHONE" FAILed for both addresses tried, but neither was
+    verified to be the phone**: `10.118.219.201` turned out to be the
+    CAR's own IP (Tesla wifi-diagnose screen), `10.118.219.1` was a
+    gateway guess - Samsung hotspots don't reliably sit at `.1`, and
+    nothing on the phone's UI shows the AP address (Settings→Status
+    shows the VPN's 100.99.9.1 while the VPN is up). So FAIL ≠ "Tesla
+    blocks UDP to RFC1918" yet - wrong-IP is equally likely. Real
+    founder time sink, root-caused to the missing diagnostics info.
+  - Fixed the time sink immediately: **build-17 shows `hotspot <ip>`
+    as a second line under the connection URL on the dashboard** (the
+    AP interface's real RFC1918 address via `localIpAddress()`,
+    regardless of which tier the ladder picked).
+  - **Next step, no car needed: home hotspot test.** Phone streaming,
+    laptop on the hotspot, `ip route` gives "default via X" = the
+    phone's true AP IP, run the probe from the laptop against X. PASS
+    there = our side + the IP are right, and one short car retest with
+    that IP is the definitive GO/NO-GO. FAIL there = our side is
+    broken (check `adb logcat -s ProbeStunServer` for "answered STUN
+    binding" lines to see whether requests even arrive).
+  - fetch/WS rows SKIPped over https as designed (zone still forces
+    https; optional scoped rule documented above).
 - **HTTPS redirect stays ON** (zone-level "Always Use HTTPS", verified
   live: http→301→https). Safest default for the product; the probe's
   decisive STUN/UDP rows are unaffected by https. Only if the fetch/WS

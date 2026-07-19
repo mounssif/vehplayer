@@ -98,7 +98,14 @@ class MainActivity : AppCompatActivity() {
             if (url != null) {
                 startActivity(
                     Intent(this, CarDashboardActivity::class.java)
-                        .putExtra(CarDashboardActivity.EXTRA_CONNECTION_URL, url),
+                        .putExtra(CarDashboardActivity.EXTRA_CONNECTION_URL, url)
+                        // The AP interface's own RFC1918 address, independent of
+                        // whatever tier the ladder picked - this is what the
+                        // WebRTC probe page needs typed in (the VPN address is
+                        // ingress-discarded for external peers, and nothing on
+                        // the phone's own UI shows the AP address anywhere - a
+                        // real founder-in-the-car time sink, session 8).
+                        .putExtra(CarDashboardActivity.EXTRA_HOTSPOT_IP, localIpAddress()),
                 )
             } else {
                 setStatus("Streaming started, but couldn't detect your hotspot's address. Turn on your phone's hotspot and tap Start again.")

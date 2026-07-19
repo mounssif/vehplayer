@@ -44,6 +44,7 @@ class CarDashboardActivity : AppCompatActivity() {
 
     companion object {
         const val EXTRA_CONNECTION_URL = "connection_url"
+        const val EXTRA_HOTSPOT_IP = "hotspot_ip"
     }
 
     private val clockFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
@@ -141,8 +142,15 @@ class CarDashboardActivity : AppCompatActivity() {
         refreshPageDots(heroPager.currentItem)
 
         intent.getStringExtra(EXTRA_CONNECTION_URL)?.let { url ->
+            val hotspotIp = intent.getStringExtra(EXTRA_HOTSPOT_IP)
             findViewById<TextView>(R.id.connectionUrlText).apply {
-                text = url
+                // Second line: the AP interface's real address, for the WebRTC
+                // probe page (see EXTRA_HOTSPOT_IP's doc comment).
+                text = if (hotspotIp != null && !url.contains(hotspotIp)) {
+                    "$url\nhotspot $hotspotIp"
+                } else {
+                    url
+                }
                 visibility = View.VISIBLE
             }
         }
