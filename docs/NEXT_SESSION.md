@@ -436,6 +436,41 @@ correct address - the project's actual blocker.
 - **Connect-info overlay scrollable** (founder ask): card wrapped in a
   ScrollView with margins, never clips on small/portrait screens.
 
+### Session 9, ~01:25: the decisive /go attempt ran - result ERR_CONNECTION_REFUSED, verdict OPEN between two readings
+
+Founder typed `http://10.118.219.223:8081/go` into the car's address
+bar (photo): **"10.118.219.223 heeft de verbinding geweigerd" /
+ERR_CONNECTION_REFUSED - a fast active refusal, not a timeout.** A
+refusal means a TCP RST came back from *something*. Two readings, not
+yet separable:
+
+1. **Car-side active block**: Tesla's browser stack/proxy refuses
+   RFC1918 destinations outright (fits the REPORTED historical
+   private-range block; fits the same-minute probe where UDP to the
+   same address died *silently* while TCP got an instant RST).
+2. **The packet reached the phone and nothing was listening**: the
+   port-8081 server may genuinely have been down at 01:25 - the
+   build-21 update flow *stops the stream* to install, and the founder
+   updated around that window. A phone with no listener sends exactly
+   this RST. Under this reading the transport WORKS and nine sessions
+   of blocker fall.
+
+The same-run probe rerun (photos) reproduced: all WebRTC PASSes, THE
+test FAIL silent, gateway auto-scan `.1/.129` FAIL (meaningless under
+the car-internal-NAT finding, as the page itself now says).
+
+**Fix shipped so the next attempt is unambiguous (build-22): zero-adb
+reachability counters.** HttpAssetServer counts every served request,
+ProbeStunServer counts answered bindings, and the connect-info overlay
+shows both live ("reached from network: HTTP Nx / STUN Nx - reopen
+after a car attempt"). Protocol: confirm streaming + port on the chip,
+attempt /go in the car, reopen the chip on the phone. HTTP counter
+moved = reading 2 (transport works, everything is suddenly close).
+Still 0 = reading 1 (car refuses RFC1918 TCP; combined with silent UDP
+drop that closes the direct-RFC1918 route and promotes tier (a) IPv6
+GUA to plan A - founder APN IPv4/IPv6 check becomes the gating
+question).
+
 ### Next run protocol (either home hotspot or car, 2 minutes)
 
 1. Update app (banner), Start, read the dashboard line: `hotspot <ip>
