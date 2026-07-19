@@ -181,6 +181,26 @@ class MainActivity : AppCompatActivity() {
             "vehplayer ${BuildConfig.VERSION_NAME} (build ${BuildConfig.VERSION_CODE})"
 
         setStatus(buildInitialStatus())
+        refreshSetupButtonEmphasis()
+    }
+
+    /**
+     * The amber "this is your next step" emphasis follows the actual setup
+     * state: step 1 is amber until the accessibility service is enabled,
+     * only then does Start take over. Founder feedback (session 9): Start
+     * being amber while step 1 was still pending read as "tap this first"
+     * and then just errored. Re-checked in onResume because the state
+     * changes in the Settings app, outside this Activity's lifecycle.
+     */
+    private fun refreshSetupButtonEmphasis() {
+        val ready = isAccessibilityServiceEnabled()
+        val step1 = findViewById<TextView>(R.id.enableAccessibilityBtn)
+        val start = findViewById<TextView>(R.id.startBtn)
+        step1.setBackgroundResource(if (ready) R.drawable.bg_keyboard_key else R.drawable.bg_keyboard_key_accent)
+        step1.setTextColor(getColor(if (ready) R.color.dash_text_primary else R.color.dash_bg))
+        step1.text = if (ready) "1. Input control enabled ✓" else "1. Enable input control (Accessibility)"
+        start.setBackgroundResource(if (ready) R.drawable.bg_keyboard_key_accent else R.drawable.bg_keyboard_key)
+        start.setTextColor(getColor(if (ready) R.color.dash_bg else R.color.dash_text_primary))
     }
 
     /**
@@ -192,6 +212,7 @@ class MainActivity : AppCompatActivity() {
      */
     override fun onResume() {
         super.onResume()
+        refreshSetupButtonEmphasis()
         updatePollJob = CoroutineScope(Dispatchers.IO).launch {
             while (true) {
                 val update = UpdateChecker.checkBlocking()
@@ -233,6 +254,18 @@ class MainActivity : AppCompatActivity() {
             setStatus("One more permission is needed to install updates. Opening settings now — after allowing it, come back and tap Update again.")
             startActivity(ApkInstaller.installPermissionSettingsIntent(this))
             return
+        }
+        // Installing while a MediaProjection screen share is active silently
+        // fails on this device (founder-observed, session 9: Update did
+        // nothing while streaming, worked immediately after a force-stop -
+        // consistent with the platform/OEM anti-scam block on the installer
+        // sheet during screen sharing). The update replaces the process
+        // anyway, so stop the stream first instead of letting the tap
+        // no-op.
+        if (app.vehplayer.android.capture.CaptureService.instance != null) {
+            setStatus("Stopping the stream first (updates can't install while screen sharing is active)...")
+            stopService(Intent(this, app.vehplayer.android.capture.CaptureService::class.java))
+            stopService(Intent(this, app.vehplayer.android.net.VpnReachabilityService::class.java))
         }
         setStatus("Downloading update...")
         ApkInstaller.downloadAndInstall(this, update.downloadUrl) { message -> setStatus(message) }

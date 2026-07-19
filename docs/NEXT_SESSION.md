@@ -379,6 +379,63 @@ specific and more useful than that:
   cellular, i.e. the hotspot was off at that moment and the iface
   suffix made that visible exactly as intended.
 
+### Session 9, later same night: THIRD in-car run - the mismatch is the CAR's own NAT, MEASURED
+
+Founder re-ran with build-19/20 (photos ~01:04-01:08). This run finally
+pins the mystery, because all three vantage points were photographed at
+once:
+
+- **App side**: dashboard showed `hotspot 10.118.219.223 (ap_br_swlan0)`
+  - the interface-ranking fix works, `ap_br_swlan0` is Samsung's real AP
+  bridge. The entered probe IP was therefore RIGHT this time.
+- **Phone side (decisive new evidence)**: Samsung's hotspot
+  connected-devices screen showed **Tesla_Model_3 connected at
+  `10.118.219.201`**, 2 minutes connected, shared data counter rising -
+  during the exact test window. The car WAS on the hotspot. Explanation
+  (a) dead.
+- **Car side**: the probe still reported the browser's own host
+  candidate as `192.168.93.142` and stunPhone FAILed; the new stunGw row
+  auto-tried `192.168.93.1`/`.129` - both FAIL (expected in hindsight).
+
+Conclusion, MEASURED: **Tesla's browser sits behind the car's internal
+NAT.** Its network interface lives on a car-internal subnet
+(`192.168.93.x`) even while the car's WiFi is associated to the hotspot
+as `10.118.219.201`. Host candidates from the car are therefore
+unroutable garbage for the phone, and subnet comparison against the
+browser's own IP says nothing about which WiFi the car is on. WebRTC
+can still work through this (car->phone direction initiates, phone
+answers via prflx) IF car->AP UDP passes - which is exactly what
+stunPhone tests and what still FAILs. Remaining suspects, now narrowed
+to two: the car's NAT not forwarding to RFC1918 WiFi-side destinations,
+or the packets arriving and something phone-side eating them
+(`adb logcat -s ProbeStunServer` during the next run answers that
+between-the-two).
+
+Probe page updated: the mismatch note now names explanation (c)
+(car-internal NAT, entered IP still right, gateway scan meaningless
+under it) and prints the single decisive next test: **type
+`http://10.118.219.223:8081/go` straight into the car's address bar**
+(top-level navigation, no mixed-content rules apply). That is
+simultaneously the first-ever real /go round-trip attempt at the
+correct address - the project's actual blocker.
+
+### Founder-feedback fixes, same night (build-21)
+
+- **Update button no-ops while streaming** (founder: "werkt wel na
+  gedwongen stoppen, niet als actief"): consistent with the
+  platform/OEM anti-scam block on installer sheets during an active
+  MediaProjection share. `startUpdate` now stops CaptureService + VPN
+  first, then downloads - the update replaces the process anyway.
+  Root-cause note: NOT the VPN (it routes only its own /32 and
+  excludes the app).
+- **Start button was amber while step 1 was still pending** (founder:
+  confusing) - emphasis now follows setup state: step 1 amber until
+  the accessibility service is on, then flips to "Input control
+  enabled ✓" (neutral) + Start amber. Verified live in both states on
+  the emulator.
+- **Connect-info overlay scrollable** (founder ask): card wrapped in a
+  ScrollView with margins, never clips on small/portrait screens.
+
 ### Next run protocol (either home hotspot or car, 2 minutes)
 
 1. Update app (banner), Start, read the dashboard line: `hotspot <ip>

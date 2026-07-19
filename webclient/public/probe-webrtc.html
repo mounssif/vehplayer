@@ -324,11 +324,16 @@ async function runAll() {
     const mismatch = hostIps.length > 0 && !hostIps.some(h => subnet24(h) === subnet24(ip));
     if (mismatch) {
       const dt = document.getElementById('dt_stunPhone');
-      dt.textContent += ` — WARNING: this device's own IP is ${hostIps.join(' / ')}, ` +
-        `which is NOT on ${ip}'s subnet. Either (a) THIS device is not actually on the ` +
-        `phone's hotspot (connected to another WiFi? check WiFi settings, pick the ` +
-        `phone's hotspot SSID, rerun), or (b) the app showed the wrong phone interface ` +
-        `(the dashboard's "(iface)" suffix tells: swlan0/ap0 = real AP, wlan0 = suspect).`;
+      dt.textContent += ` — NOTE: this device's own IP is ${hostIps.join(' / ')}, ` +
+        `which is NOT on ${ip}'s subnet. Either (a) THIS device is not on the phone's ` +
+        `hotspot (check WiFi settings), (b) the app showed the wrong phone interface ` +
+        `(dashboard "(iface)" suffix: swlan0/ap0 = real AP, wlan0/rmnet = suspect), or ` +
+        `(c) this browser sits behind the CAR's internal NAT (Tesla: own IP shows as a ` +
+        `car-internal 192.168.9x.x even while the car IS on the hotspot - confirmed by ` +
+        `the phone listing the car as a connected device). Under (c) the entered IP is ` +
+        `still right and the gateway scan below is meaningless - the decisive test is ` +
+        `typing http://${ip}:${document.getElementById('httpPort').value.trim() || '8080'}/go ` +
+        `straight into the address bar.`;
       log(`subnet mismatch: this device ${hostIps.join('/')} vs entered ${ip}`);
     }
     if (phoneOk) {
