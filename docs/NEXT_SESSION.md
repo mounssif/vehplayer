@@ -369,6 +369,16 @@ specific and more useful than that:
   correct IP to retype. Derivation logic unit-verified in node against
   the exact candidate lines from tonight's photos.
 
+- **Dashboard "connect info" chip (build-20, founder ask)**: the URL +
+  hotspot lines were creeping toward the tiles, so the header now shows
+  one compact chip; tapping opens the QR overlay extended with the /go
+  URL and `hotspot <ip> (<iface>)`. QR shrunk 300dp→200dp (caption fell
+  off a landscape screen at 300dp). Verified live on the emulator:
+  chip, overlay content, tap-dismiss. Bonus evidence from the founder's
+  build-19 photo: the line read `hotspot 10.184.170.12 (rmnet_data0)` -
+  cellular, i.e. the hotspot was off at that moment and the iface
+  suffix made that visible exactly as intended.
+
 ### Next run protocol (either home hotspot or car, 2 minutes)
 
 1. Update app (banner), Start, read the dashboard line: `hotspot <ip>
