@@ -148,20 +148,16 @@ class CarDashboardActivity : AppCompatActivity() {
         intent.getStringExtra(EXTRA_CONNECTION_URL)?.let { url ->
             val hotspotIp = intent.getStringExtra(EXTRA_HOTSPOT_IP)
             val hotspotIface = intent.getStringExtra(EXTRA_HOTSPOT_IFACE)
+            val probeUrl = intent.getStringExtra(EXTRA_PROBE_URL)
             findViewById<TextView>(R.id.connectionUrlText).apply {
-                // Second line: the AP interface's real address + interface name,
-                // for the WebRTC probe page (see EXTRA_HOTSPOT_IP's doc comment;
-                // the iface name makes a wrong-interface pick visible from a
-                // car-screen photo alone).
-                text = if (hotspotIp != null && !url.contains(hotspotIp)) {
-                    "$url\nhotspot $hotspotIp" + (hotspotIface?.let { " ($it)" } ?: "")
-                } else {
-                    url
-                }
+                // Compact chip instead of the raw address dump: the header
+                // stays one short line no matter how much connection detail
+                // exists (founder ask, session 9 - the two address lines were
+                // creeping toward the tiles). Tap opens the overlay with the
+                // /go URL, hotspot ip (iface) and the scan-to-probe QR.
+                text = "connect info"
                 visibility = View.VISIBLE
-                intent.getStringExtra(EXTRA_PROBE_URL)?.let { probeUrl ->
-                    setOnClickListener { showProbeQr(probeUrl) }
-                }
+                setOnClickListener { showConnectionInfo(url, hotspotIp, hotspotIface, probeUrl) }
             }
         }
 
@@ -391,22 +387,30 @@ class CarDashboardActivity : AppCompatActivity() {
     }
 
     /**
-     * Full-screen QR of the probe-webrtc URL with the phone's hotspot IP
-     * and port prefilled (?ip=&port= + autorun) - scan with any second
-     * device on the hotspot and the whole connectivity probe runs with
-     * zero typing. Opened by tapping the connection URL text.
+     * Full-screen connection overlay behind the "connect info" chip: the /go
+     * URL to type in the car, the hotspot AP address + interface name (the
+     * iface makes a wrong-interface pick visible from a car-screen photo
+     * alone - swlan0/ap0 = real AP, wlan0 = client radio, rmnet* = cellular,
+     * i.e. hotspot probably off), and the scan-to-probe QR (?ip=&port= +
+     * autorun - scan with any second device on the hotspot and the whole
+     * connectivity probe runs with zero typing).
      */
-    private fun showProbeQr(probeUrl: String) {
+    private fun showConnectionInfo(url: String, hotspotIp: String?, hotspotIface: String?, probeUrl: String?) {
         val overlay = findViewById<FrameLayout>(R.id.probeQrOverlay)
         val image = findViewById<ImageView>(R.id.probeQrImage)
-        if (image.drawable == null) {
+        if (probeUrl != null && image.drawable == null) {
             runCatching { image.setImageBitmap(qrBitmap(probeUrl, 720)) }
-                .onFailure {
-                    android.util.Log.w("CarDashboardActivity", "QR render failed", it)
-                    return
-                }
+                .onFailure { android.util.Log.w("CarDashboardActivity", "QR render failed", it) }
         }
-        findViewById<TextView>(R.id.probeQrCaption).text = probeUrl
+        image.visibility = if (image.drawable != null) View.VISIBLE else View.GONE
+        findViewById<TextView>(R.id.probeQrCaption).text = buildString {
+            append(url)
+            if (hotspotIp != null) {
+                append("\nhotspot ").append(hotspotIp)
+                if (hotspotIface != null) append(" (").append(hotspotIface).append(')')
+            }
+            if (probeUrl != null) append("\n\nscan with a phone/laptop on the hotspot: connectivity probe runs itself")
+        }
         overlay.visibility = View.VISIBLE
         overlay.setOnClickListener { overlay.visibility = View.GONE }
     }
