@@ -6,7 +6,8 @@ import android.content.Intent
 import android.media.projection.MediaProjectionManager
 import android.os.Bundle
 import android.provider.Settings
-import android.widget.Button
+import android.view.LayoutInflater
+import android.view.View
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
@@ -51,7 +52,7 @@ class MainActivity : AppCompatActivity() {
     private var carWidth = 1280
     private var carHeight = 800
 
-    private lateinit var rootLayout: LinearLayout
+    private lateinit var updateBannerContainer: LinearLayout
 
     // Set by onStartClicked() when ReachabilityLadder finds a real global
     // IPv6 address (tier (a)) - awaitHttpServerAndShowUrl() must use THIS,
@@ -148,38 +149,18 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
 
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(48, 96, 48, 48)
+        statusView = findViewById(R.id.statusText)
+        updateBannerContainer = findViewById(R.id.updateBannerContainer)
+
+        findViewById<View>(R.id.enableAccessibilityBtn).setOnClickListener {
+            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         }
-        rootLayout = root
-        statusView = TextView(this).apply { textSize = 15f }
-        root.addView(statusView)
+        findViewById<View>(R.id.startBtn).setOnClickListener { onStartClicked() }
+        findViewById<TextView>(R.id.versionFooter).text =
+            "vehplayer ${BuildConfig.VERSION_NAME} (build ${BuildConfig.VERSION_CODE})"
 
-        val enableAccessibilityBtn = Button(this).apply {
-            text = "1. Enable input control (Accessibility)"
-            setOnClickListener {
-                startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-            }
-        }
-        root.addView(enableAccessibilityBtn)
-
-        val startBtn = Button(this).apply {
-            text = "2. Start streaming"
-            setOnClickListener { onStartClicked() }
-        }
-        root.addView(startBtn)
-
-        val versionFooter = TextView(this).apply {
-            text = "vehplayer ${BuildConfig.VERSION_NAME} (build ${BuildConfig.VERSION_CODE})"
-            textSize = 11f
-            alpha = 0.5f
-            setPadding(0, 32, 0, 0)
-        }
-        root.addView(versionFooter)
-
-        setContentView(root)
         setStatus(buildInitialStatus())
 
         checkForUpdate()
@@ -199,11 +180,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showUpdateBanner(update: UpdateChecker.UpdateInfo) {
-        val btn = Button(this).apply {
-            text = "Update available - tap to install"
-            setOnClickListener { startUpdate(update) }
-        }
-        rootLayout.addView(btn, 0)
+        val banner = LayoutInflater.from(this).inflate(R.layout.item_update_banner, updateBannerContainer, false)
+        banner.findViewById<View>(R.id.updateBannerButton).setOnClickListener { startUpdate(update) }
+        updateBannerContainer.addView(banner)
     }
 
     /**

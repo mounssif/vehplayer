@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The phone-held setup screen, restyled (session 6) to match
+     CarDashboardActivity's warm-dark Space Grotesk visual language instead
+     of plain default AppCompat widgets - this was the last screen in the
+     app that still looked like a dev shell. -->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/dash_bg"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="28dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:fontFamily="@font/space_grotesk_bold"
+            android:textColor="@color/dash_text_primary"
+            android:textSize="30sp"
+            android:text="vehplayer" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:fontFamily="@font/space_grotesk_regular"
+            android:textColor="@color/dash_text_muted"
+            android:textSize="14sp"
+            android:text="A car dashboard for your Tesla" />
+
+        <!-- Update banner: inserted here at index 0 of its own container so
+             it can be shown/hidden without disturbing the rest of the
+             layout, see MainActivity.showUpdateBanner(). -->
+        <LinearLayout
+            android:id="@+id/updateBannerContainer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:orientation="vertical" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:orientation="vertical"
+            android:background="@drawable/bg_search_bar"
+            android:padding="18dp">
+
+            <TextView
+                android:id="@+id/statusText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:fontFamily="@font/space_grotesk_regular"
+                android:textColor="@color/dash_text_primary"
+                android:textSize="15sp"
+                android:lineSpacingExtra="3dp" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/enableAccessibilityBtn"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:background="@drawable/bg_keyboard_key"
+            android:paddingHorizontal="20dp"
+            android:paddingVertical="18dp"
+            android:gravity="center_vertical"
+            android:fontFamily="@font/space_grotesk_medium"
+            android:textColor="@color/dash_text_primary"
+            android:textSize="15sp"
+            android:clickable="true"
+            android:focusable="true"
+            android:text="1. Enable input control (Accessibility)" />
+
+        <TextView
+            android:id="@+id/startBtn"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:background="@drawable/bg_keyboard_key_accent"
+            android:paddingHorizontal="20dp"
+            android:paddingVertical="18dp"
+            android:gravity="center_vertical"
+            android:fontFamily="@font/space_grotesk_bold"
+            android:textColor="@color/dash_bg"
+            android:textSize="16sp"
+            android:clickable="true"
+            android:focusable="true"
+            android:text="2. Start streaming" />
+
+        <TextView
+            android:id="@+id/versionFooter"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="28dp"
+            android:layout_gravity="center_horizontal"
+            android:fontFamily="@font/space_grotesk_regular"
+            android:textColor="@color/dash_text_muted"
+            android:alpha="0.6"
+            android:textSize="11sp" />
+    </LinearLayout>
+</ScrollView>
