@@ -231,8 +231,30 @@ replaceable by a maps widget. Built:
 
 ### Still open after session 8
 
-- Founder: `make deploy-web` (wrangler auth needed), then the in-car
-  probe run (five minutes, photograph the rows).
+- **Founder: connect Workers Builds (one-time, ~3 min), then the in-car
+  probe run.** Decision made this session (founder delegated: "best,
+  most stable, safest for the end user"): webclient deploys switch from
+  manual `wrangler deploy` to Cloudflare Workers Builds auto-deploy on
+  push to main - the sessions 3/5 stale-deploy incidents are exactly the
+  failure class this removes, builds stay CF-side (still no GitHub
+  Actions, so the original avoid-CI preference's real concern is
+  honored). Checklist:
+  1. dash.cloudflare.com → Workers & Pages → worker `vehplayer` →
+     Settings → Builds → Connect repository → GitHub
+     `mounssif/vehplayer`, branch `main`.
+  2. Root directory: `webclient`. Build command: `npm ci && npm run
+     build`. Deploy command: `npx wrangler deploy`.
+  3. Push anything (or re-run the first build) and verify
+     `https://veh.modev.be/probe-webrtc.html` returns 200 - that page
+     being live is what unblocks the in-car WebRTC probe.
+  Until then the manual fallback still works: `npx wrangler login` once,
+  then `make deploy-web`.
+- **HTTPS redirect stays ON** (zone-level "Always Use HTTPS", verified
+  live: http→301→https). Safest default for the product; the probe's
+  decisive STUN/UDP rows are unaffected by https. Only if the fetch/WS
+  rows should also run in the car: add a Cloudflare Configuration Rule
+  skipping the https redirect for `veh.modev.be/probe*` - optional,
+  scoped, not required for the GO/NO-GO answer.
 - Founder: APN protocol check (IPv4/IPv6) on the data SIM for tier (a).
 - In-app diagnostics screen (chosen tier, resolved address, "did
   anything connect" counters) - still not built.

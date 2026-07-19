@@ -28,10 +28,15 @@ manual equivalents, if the Makefile isn't available for some reason:
   something that will actually be published - see the release lesson
   below).
 - **Webclient**: `cd webclient && npm install && npm run typecheck && npm run build`.
-- **Webclient deploy**: `cd webclient && npm run build && npx wrangler deploy`
-  (needs `CLOUDFLARE_API_TOKEN`/`CLOUDFLARE_ACCOUNT_ID`; this is a manual
-  step deliberately, not CI, per an explicit founder preference to avoid
-  GitHub Actions where avoidable).
+- **Webclient deploy**: auto via Cloudflare Workers Builds on push to
+  main, once the founder completes the one-time connect (session 8
+  decision, delegated by the founder: two real stale-deploy incidents in
+  sessions 3/5 made "deploy equals latest main" the end-user-safest
+  option; CF-side builds, so still no GitHub Actions, honoring the
+  original preference). Until connected - and as fallback - manual:
+  `cd webclient && npm run build && npx wrangler deploy` (needs
+  `npx wrangler login` or `CLOUDFLARE_API_TOKEN`/`CLOUDFLARE_ACCOUNT_ID`).
+  Setup checklist lives in `docs/NEXT_SESSION.md` session 8.
 - **Cloud Worker**: `cd cloud && npm install && npm run typecheck`.
 - **Latency harness**: `cd validate/latency-harness && python measure_latency.py --selftest`.
 - **Fake sender (dev, no car needed)**: `cd webclient && npm run harness`.
