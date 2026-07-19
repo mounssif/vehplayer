@@ -102,14 +102,15 @@ class MainActivity : AppCompatActivity() {
                 // external peers, and nothing on the phone's own UI shows the
                 // AP address anywhere - a real founder-in-the-car time sink,
                 // session 8).
-                val hotspotIp = localIpAddress()
+                val hotspot = hotspotAddress()
                 startActivity(
                     Intent(this, CarDashboardActivity::class.java)
                         .putExtra(CarDashboardActivity.EXTRA_CONNECTION_URL, url)
-                        .putExtra(CarDashboardActivity.EXTRA_HOTSPOT_IP, hotspotIp)
+                        .putExtra(CarDashboardActivity.EXTRA_HOTSPOT_IP, hotspot?.first)
+                        .putExtra(CarDashboardActivity.EXTRA_HOTSPOT_IFACE, hotspot?.second)
                         .putExtra(
                             CarDashboardActivity.EXTRA_PROBE_URL,
-                            hotspotIp?.let { "https://veh.modev.be/probe-webrtc?ip=$it&port=$port" },
+                            hotspot?.let { "https://veh.modev.be/probe-webrtc?ip=${it.first}&port=$port" },
                         ),
                 )
             } else {
@@ -287,32 +288,52 @@ class MainActivity : AppCompatActivity() {
      * No API exposes "the hotspot's own IP" directly. A cellular data
      * interface (rmnet*, ccmni*, etc.) can be up at the same time as the
      * hotspot AP interface and would otherwise win by enumeration order
-     * alone - not what "the hotspot's own IP" means, and a real latent gap
-     * (NEXT_SESSION.md) even though it wasn't the cause of either bug found
-     * so far. Prefer an interface whose name suggests AP/hotspot mode AND
-     * whose address is RFC1918 private range; fall back to any RFC1918
-     * address; fall back to the first non-loopback address as a last resort.
+     * alone - not what "the hotspot's own IP" means. This burned us for
+     * real in the first in-car probe run (session 9): a generic wlan*
+     * client interface holding a 10.x address on another network ranked
+     * equal to the AP interface, won by enumeration order, and the probe
+     * targeted an IP that wasn't on the hotspot LAN at all. So the ranking
+     * is now strict: AP-mode interface names (ap*, swlan*, softap*) beat
+     * generic wlan* (which is usually the *client* radio), a gateway-style
+     * .1/.129 last octet breaks ties among wlan*, point-to-point (VPN tun)
+     * interfaces are excluded entirely, and any RFC1918 address is only a
+     * last resort.
      */
-    private fun localIpAddress(): String? = try {
-        val candidates = Collections.list(NetworkInterface.getNetworkInterfaces())
-            .filter { it.isUp && !it.isLoopback }
+    private fun localIpAddress(): String? = hotspotAddress()?.first
+
+    /**
+     * The chosen candidate as (address, interface name). The interface name
+     * rides along to the dashboard so a mismatch is self-diagnosing from a
+     * car-screen photo: `swlan0`/`ap0` means "this really is the AP side",
+     * `wlan0` means "client radio - suspect".
+     */
+    private fun hotspotAddress(): Pair<String, String>? = try {
+        Collections.list(NetworkInterface.getNetworkInterfaces())
+            .filter { it.isUp && !it.isLoopback && !it.isPointToPoint }
             .flatMap { iface ->
                 Collections.list(iface.inetAddresses)
                     .filterIsInstance<Inet4Address>()
                     .filter { !it.isLoopbackAddress }
                     .map { iface to it }
             }
-        candidates.firstOrNull { (iface, addr) -> isLikelyHotspotInterface(iface.name) && isPrivateRange(addr) }
-            ?.second?.hostAddress
-            ?: candidates.firstOrNull { (_, addr) -> isPrivateRange(addr) }?.second?.hostAddress
-            ?: candidates.firstOrNull()?.second?.hostAddress
+            .maxByOrNull { (iface, addr) -> hotspotScore(iface.name, addr) }
+            ?.let { (iface, addr) -> addr.hostAddress?.let { it to iface.name } }
     } catch (e: SocketException) {
         null
     }
 
-    private fun isLikelyHotspotInterface(name: String): Boolean {
+    private fun hotspotScore(name: String, addr: Inet4Address): Int {
         val n = name.lowercase()
-        return n.startsWith("ap") || n.startsWith("wlan") || n.startsWith("swlan") || n.startsWith("softap")
+        val private = isPrivateRange(addr)
+        val lastOctet = addr.address[3].toInt() and 0xFF
+        val gatewayLike = lastOctet == 1 || lastOctet == 129
+        return when {
+            private && (n.startsWith("ap") || n.startsWith("swlan") || n.startsWith("softap")) -> 100
+            private && n.startsWith("wlan") && gatewayLike -> 80
+            private && n.startsWith("wlan") -> 60
+            private -> 40
+            else -> 1
+        }
     }
 
     private fun isPrivateRange(addr: Inet4Address): Boolean {

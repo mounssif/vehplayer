@@ -62,6 +62,10 @@
 > groundwork (research, probe page, phone STUN responder), plus a
 > feedback-driven rework moving pinned widgets into hero slides - see
 > the session 8 section.
+> Session 9: second real in-car probe run reproduced every session-8
+> WebRTC PASS, and exposed why THE test keeps failing: subnet mismatch
+> (car on 192.168.93.x, probe targeting 10.118.219.223). Fixes on all
+> three sides shipped - see the session 9 section.
 
 ## Session 8: WebRTC probe built + widget slides rework (real user feedback round)
 
@@ -310,6 +314,76 @@ replaceable by a maps widget. Built:
   (Teslas have no camera, so QR can't serve the car itself). This
   short-code rendezvous is the same mechanism WebRTC signaling needs
   anyway - build it once, it serves both.
+
+## Session 9: second real in-car probe run - subnet mismatch found, THE test still open
+
+Founder ran the full probe again in the real Tesla (photos in session
+log, ~00:18), this time via the dashboard-shown values: probe at
+`veh.modev.be/probe-webrtc` with `ip=10.118.219.223` (the app's shown
+`hotspot` line, build-18) and `port=8081`. Founder's own read was
+"still no connection via the hotspot IP" - the actual result is more
+specific and more useful than that:
+
+- **Re-confirmed MEASURED, second independent run**: Chromium 140 UA;
+  WebRTC API PASS; ICE PASS with 1 real host candidate and **0
+  mDNS-obfuscated**; loopback data channel PASS 82ms; UDP out to
+  public STUN PASS 155ms (srflx via `94.109.177.82`). The whole
+  session-8 result set reproduced.
+- **THE test (UDP to phone) FAILed for a now-visible reason: subnet
+  mismatch, MEASURED.** The car's own host candidate was
+  `192.168.93.142`, but the probe targeted `10.118.219.223` - not on
+  that /24 at all. Whatever else is true, that packet was never a
+  valid hotspot-LAN test. So "Tesla blocks UDP to the phone" is STILL
+  not established; the run was invalid the same way session 8's was,
+  one layer deeper.
+- **Two rival explanations, not yet settled**: (a) the app picked the
+  wrong phone interface again - `localIpAddress()` ranked generic
+  `wlan*` (usually the *client* radio) equal to AP-mode names, so a
+  client-WiFi/other 10.x interface could win by enumeration order; or
+  (b) **the car was not on the phone's hotspot at all** but on another
+  WiFi (home network reachable from the driveway; the test happened at
+  home). Evidence FOR (b): session 8's Tesla wifi-diagnose showed the
+  car at `10.118.219.201` - the SAME /24 the app now reports as
+  `hotspot` - which fits `10.118.219.x` really being the Samsung AP
+  subnet and `192.168.93.x` being some other network the car
+  auto-joined tonight. Unresolved; the fixes below make the next run
+  self-diagnosing either way.
+
+### Fixes shipped this session (all three sides)
+
+- **`MainActivity.localIpAddress()` rank rewrite**: strict scoring
+  replaces the two-bucket filter - AP-mode names (`ap*`, `swlan*`,
+  `softap*`) score 100, generic `wlan*` with a gateway-style `.1`/
+  `.129` last octet 80, other `wlan*` 60, any other RFC1918 40;
+  point-to-point (VPN tun) interfaces are excluded entirely. Closes
+  scenario (a) as far as ranking can.
+- **Dashboard now shows the interface name**: `hotspot <ip> (<iface>)`.
+  A car-screen photo alone now distinguishes "real AP address"
+  (`swlan0`/`ap0`) from "suspect client-radio pick" (`wlan0`).
+- **Probe page subnet sanity check + gateway auto-fallback**: the page
+  records its own host-candidate IPs during ICE gathering; if the
+  entered phone IP isn't on any of the device's own /24s, a loud
+  warning names both explanations (wrong WiFi vs wrong interface).
+  New `stunGw` row: after a stunPhone FAIL it auto-tries
+  `<own-subnet>.1` and `.129` via STUN; a PASS there prints the
+  correct IP to retype. Derivation logic unit-verified in node against
+  the exact candidate lines from tonight's photos.
+
+### Next run protocol (either home hotspot or car, 2 minutes)
+
+1. Update app (banner), Start, read the dashboard line: `hotspot <ip>
+   (<iface>)`. If iface is `swlan0`/`ap0`, that IP is trustworthy.
+2. In the car: Tesla WiFi settings, confirm the connected SSID **is
+   the phone's hotspot** (forget the home network if it keeps
+   grabbing the car), then open the probe with that IP.
+3. Read three things off the result: the stunPhone row, the mismatch
+   warning (should be absent now), and the stunGw row. stunPhone PASS
+   = GO for WebRTC transport. stunGw PASS with a different IP = app
+   detection still wrong but the correct IP is on screen - retype and
+   rerun. Both FAIL with no mismatch warning = first genuine evidence
+   of a UDP/client-isolation block (check `adb logcat -s
+   ProbeStunServer` for "answered STUN binding" to see if requests
+   arrive at all).
 
 ## Session 7, part 2: FIRST REAL TESLA TEST - tier (c) is dead on modern Android, and we know exactly why
 

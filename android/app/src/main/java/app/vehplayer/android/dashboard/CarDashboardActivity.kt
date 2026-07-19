@@ -45,6 +45,7 @@ class CarDashboardActivity : AppCompatActivity() {
     companion object {
         const val EXTRA_CONNECTION_URL = "connection_url"
         const val EXTRA_HOTSPOT_IP = "hotspot_ip"
+        const val EXTRA_HOTSPOT_IFACE = "hotspot_iface"
         const val EXTRA_PROBE_URL = "probe_url"
     }
 
@@ -146,11 +147,14 @@ class CarDashboardActivity : AppCompatActivity() {
 
         intent.getStringExtra(EXTRA_CONNECTION_URL)?.let { url ->
             val hotspotIp = intent.getStringExtra(EXTRA_HOTSPOT_IP)
+            val hotspotIface = intent.getStringExtra(EXTRA_HOTSPOT_IFACE)
             findViewById<TextView>(R.id.connectionUrlText).apply {
-                // Second line: the AP interface's real address, for the WebRTC
-                // probe page (see EXTRA_HOTSPOT_IP's doc comment).
+                // Second line: the AP interface's real address + interface name,
+                // for the WebRTC probe page (see EXTRA_HOTSPOT_IP's doc comment;
+                // the iface name makes a wrong-interface pick visible from a
+                // car-screen photo alone).
                 text = if (hotspotIp != null && !url.contains(hotspotIp)) {
-                    "$url\nhotspot $hotspotIp"
+                    "$url\nhotspot $hotspotIp" + (hotspotIface?.let { " ($it)" } ?: "")
                 } else {
                     url
                 }

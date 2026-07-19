@@ -78,6 +78,7 @@ const TESTS = [
   ['loopback', 'In-page loopback: data channel round trip'],
   ['stunPub',  'UDP out to public STUN (control test, needs internet)'],
   ['stunPhone','UDP to PHONE on hotspot IP (THE test - stun:<ip>:3478)'],
+  ['stunGw',   'UDP to derived gateway (auto-fallback: this device’s own subnet, .1/.129)'],
   ['fetch',    'HTTP fetch to phone hotspot IP (/go, port above)'],
   ['ws',       'WebSocket to phone hotspot IP (tcp/8787)'],
 ];
@@ -139,6 +140,19 @@ function testApi() {
   return ok && dcOk;
 }
 
+// This device's own host-candidate IPs, filled during ICE gathering. Used to
+// sanity-check the entered phone IP: if the phone IP isn't on any subnet this
+// device is actually on, the app reported the wrong interface (the exact bug
+// of the first real in-car run: app said 10.118.219.223, car was on
+// 192.168.93.x) and stunPhone would fail for a reason that has nothing to do
+// with UDP policy. The stunGw row then auto-tries the derived gateway.
+const hostIps = [];
+function noteHostCandidate(candStr) {
+  const m = candStr.match(/ (\d+\.\d+\.\d+\.\d+) \d+ typ host/);
+  if (m && !hostIps.includes(m[1])) hostIps.push(m[1]);
+}
+const subnet24 = (ip) => ip.split('.').slice(0, 3).join('.');
+
 // --- test 2: ICE gathering, no servers; reports candidate types + mDNS ---
 function testIceGathering() {
   return new Promise((resolve) => {
@@ -163,6 +177,7 @@ function testIceGathering() {
     pc.onicecandidate = (e) => {
       if (!e.candidate) return finish();
       cands.push(e.candidate.candidate);
+      noteHostCandidate(e.candidate.candidate);
       log('cand: ' + e.candidate.candidate);
     };
     pc.createOffer().then(o => pc.setLocalDescription(o))
@@ -305,11 +320,47 @@ async function runAll() {
   await testLoopback();
   await stunTest('stunPub', 'stun:stun.l.google.com:19302', 8000);
   if (ip) {
-    await stunTest('stunPhone', `stun:${ip}:3478`, 10000);
+    const phoneOk = await stunTest('stunPhone', `stun:${ip}:3478`, 10000);
+    const mismatch = hostIps.length > 0 && !hostIps.some(h => subnet24(h) === subnet24(ip));
+    if (mismatch) {
+      const dt = document.getElementById('dt_stunPhone');
+      dt.textContent += ` — WARNING: this device's own IP is ${hostIps.join(' / ')}, ` +
+        `which is NOT on ${ip}'s subnet. Either (a) THIS device is not actually on the ` +
+        `phone's hotspot (connected to another WiFi? check WiFi settings, pick the ` +
+        `phone's hotspot SSID, rerun), or (b) the app showed the wrong phone interface ` +
+        `(the dashboard's "(iface)" suffix tells: swlan0/ap0 = real AP, wlan0 = suspect).`;
+      log(`subnet mismatch: this device ${hostIps.join('/')} vs entered ${ip}`);
+    }
+    if (phoneOk) {
+      setResult('stunGw', 'SKIP', 'not needed - entered IP already passed');
+    } else if (!hostIps.length) {
+      setResult('stunGw', 'SKIP', 'no host candidate to derive a gateway from');
+    } else {
+      const pfx = subnet24(hostIps.find(h =>
+        /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(h)) || hostIps[0]);
+      const guesses = [`${pfx}.1`, `${pfx}.129`].filter(g => g !== ip && !hostIps.includes(g));
+      if (!guesses.length) {
+        setResult('stunGw', 'SKIP', 'entered IP already covers the derived gateway');
+      } else {
+        let winner = null;
+        for (const g of guesses) {
+          if (await stunTest('stunGw', `stun:${g}:3478`, 6000)) { winner = g; break; }
+        }
+        if (winner) {
+          setResult('stunGw', 'PASS',
+            `PHONE REACHED at ${winner} - USE THIS IP. Retype it above and RUN ALL. ` +
+            `(The app-shown ${ip} was the wrong interface.)`);
+        } else {
+          document.getElementById('dt_stunGw').textContent +=
+            ` — tried ${guesses.join(', ')}; phone may not be streaming, or its STUN ` +
+            `server is down, or the AP blocks client-to-AP UDP.`;
+        }
+      }
+    }
     await testFetch(ip, document.getElementById('httpPort').value.trim() || '8080');
     await testWs(ip);
   } else {
-    for (const id of ['stunPhone','fetch','ws'])
+    for (const id of ['stunPhone','stunGw','fetch','ws'])
       setResult(id, 'SKIP', 'enter the phone hotspot IP first');
   }
   log('done. Photograph this screen.');
