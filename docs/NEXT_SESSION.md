@@ -332,6 +332,83 @@ pass, worth remembering**:
    section in `brand.json`/`trademark-note.md` this session, before it
    could cause the same problem here.
 
+### Real-phone testing round (session 6, third pass) - found what the emulator couldn't
+The user tested the actual build on their own Samsung phone (not the
+emulator) and sent real screenshots. Two real, concrete bugs surfaced that
+static review and emulator testing both missed:
+
+1. **Contacts A-Z scrubber was invisible on a real screen** (worked, but
+   functionally couldn't be seen - 10sp `dash_text_muted` text against
+   the near-black background). Fixed: bigger (13sp), bold, full-contrast
+   `dash_text_primary`, and the strip now has its own `dash_surface`
+   background so it reads as a real control instead of blending in.
+2. **`NavAppPreference`'s installed-nav-app detection silently found
+   nothing, even with Google Maps genuinely installed** - real Android 11+
+   package-visibility restriction: `queryIntentActivities()` returns
+   empty for anything outside the calling app's own package unless
+   `AndroidManifest.xml` declares a `<queries>` block for the intent
+   being probed. `adb shell cmd package resolve-activity` isn't subject
+   to this (shell UID), which is exactly what made it look like a
+   device-specific or timing issue before actually checking the manifest.
+   Fixed with a `<queries>` declaration for `geo:` intents. Verified live
+   on the emulator after the fix: picker correctly showed "Maps",
+   selecting a destination correctly launched Google Maps with the right
+   coordinates instead of drawing an in-app route.
+
+Also surfaced, **not a bug, just needed explaining**: the Messages tile
+showed "No recent messages" despite the user having 93 unread messages in
+Google Messages. Correct behavior, not broken - `NotificationListenerService.
+activeNotifications` only returns *currently-posted* system notifications,
+not an app's own internal inbox/unread state. If those 93 messages'
+notifications were already seen/cleared on-device (common after opening
+the Messages app at some point), there is nothing left for a
+notification-based reader to see - no generic API reads WhatsApp/SMS/RCS
+inbox content directly (see the Messages section above). Added an
+explanatory subtext to the empty state
+("Shows new messages as they arrive, not your full inbox") rather than
+leaving it looking like a silent failure. To test this feature live,
+send yourself a fresh message so a real notification posts.
+
+**New feature, also from this round**: `NavAppPreference.kt`/
+`NavAppPickerView.kt` - Navigate can now hand a chosen destination to a
+real installed nav app (Google Maps, Waze, whatever's actually detected
+via the `<queries>`-enabled `geo:` probe, not a hardcoded allowlist)
+instead of always rendering in-app, picked via a settings icon next to
+the recenter button on the Navigate page. Real user finding worth noting
+for later: **Waze does not appear to publish a real home-screen widget,
+Google Maps does** (relevant if the AppWidgetHost "pin any widget" tile
+from earlier this session's research ever gets built - Maps would be a
+good candidate, Waze wouldn't).
+
+**Accessibility/handsfree audit, done this pass**: reviewed touch target
+sizes across every list row added this session (suggestions, contacts,
+call log, messages, nav-app picker) - all comfortably exceed Material's
+48dp minimum once real padding + multi-line text content is accounted
+for, no changes needed beyond the A-Z scrubber fix above. Reviewed
+`contentDescription` coverage - every *interactive* icon-only control
+(recenter, nav-app settings, all overlay close buttons) already has one;
+several purely-decorative icons (tile icons sitting next to their own
+label text, the search-bar compass icon next to "Where to?", empty-state
+icons next to their own explanatory text) don't, which is correct/expected
+(TalkBack reads the adjacent visible text; a redundant description on a
+decorative icon next to text it duplicates is noise, not an improvement).
+**Left explicitly open, a product decision not an implementation one**:
+whether destination search/typing should be restricted to parked-only -
+flagged back in the original Navigate keyboard work this session, still
+unresolved, needs a founder call not a Claude default.
+
+**Also restyled this pass**: `MainActivity`'s setup screen (`activity_main.xml`,
+replacing the plain programmatically-built `LinearLayout`/`Button` UI) to
+match `CarDashboardActivity`'s warm-dark Space Grotesk look - this was the
+last screen in the app that still looked like a dev shell. Verified live:
+status text updates, both step buttons, and the update banner all fire
+their real click handlers correctly in the new layout.
+
+**Explicitly deferred to a fresh session, per the user**: the tier (a)/(c)
+real-Tesla connectivity verification (`docs/ARCHITECTURE.md` §7,
+`VpnReachabilityService.kt`) - the user wants that investigated with fresh
+context rather than at the tail end of an already-very-long session.
+
 ## CarDashboardActivity (session 4, build-9) - Phase 1 of 3
 Founder pushback that mattered: "casting my whole phone has no value to me,
 I want the Android Auto/CarPlay *feeling*, not a raw mirror." Re-embedding
