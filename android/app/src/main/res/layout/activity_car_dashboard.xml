@@ -131,6 +131,13 @@
             android:layout_height="0dp"
             android:layout_weight="1"
             android:layout_marginTop="14dp" />
+
+        <include
+            layout="@layout/dash_tile_widget"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:layout_marginTop="14dp" />
     </LinearLayout>
 
     <!-- Full-screen destination search (text field + live suggestions +

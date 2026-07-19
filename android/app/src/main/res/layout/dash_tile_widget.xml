@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The generic "pin any widget" tile (NEXT_SESSION.md session 6: right fit
+     for things that will never get bespoke integration - Home Assistant, a
+     car manufacturer's own widget, weather - unlike Messages/Phone, which
+     read real notification/call data directly instead of embedding a
+     foreign-styled widget). Empty state looks like any other dash_tile
+     (a "+" icon + label, same tap-to-open convention); once pinned,
+     CarDashboardActivity swaps a real AppWidgetHostView into
+     widgetHostContainer and shows widgetUnpinButton instead. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <LinearLayout
+        android:id="@+id/widgetPlaceholder"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="@drawable/bg_tile"
+        android:paddingHorizontal="20dp"
+        android:clickable="true"
+        android:focusable="true">
+
+        <ImageView
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:background="@drawable/bg_icon_badge_amber"
+            android:padding="10dp"
+            android:src="@drawable/ic_add"
+            app:tint="@color/dash_accent_amber" />
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="16dp"
+            android:fontFamily="@font/space_grotesk_medium"
+            android:textColor="@color/dash_text_primary"
+            android:textSize="18sp"
+            android:text="Pin a widget" />
+    </LinearLayout>
+
+    <FrameLayout
+        android:id="@+id/widgetHostContainer"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@drawable/bg_tile_shape"
+        android:clipToOutline="true"
+        android:visibility="gone" />
+
+    <ImageView
+        android:id="@+id/widgetUnpinButton"
+        android:layout_width="36dp"
+        android:layout_height="36dp"
+        android:layout_gravity="top|end"
+        android:layout_margin="4dp"
+        android:padding="8dp"
+        android:background="@drawable/bg_icon_badge"
+        android:src="@drawable/ic_close"
+        android:contentDescription="Unpin widget"
+        app:tint="@color/dash_text_primary"
+        android:visibility="gone" />
+
+</FrameLayout>

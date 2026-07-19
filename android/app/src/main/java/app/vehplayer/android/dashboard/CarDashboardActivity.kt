@@ -1,5 +1,9 @@
 package app.vehplayer.android.dashboard
 
+import android.app.Activity
+import android.appwidget.AppWidgetManager
+import android.content.ActivityNotFoundException
+import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -7,9 +11,11 @@ import android.os.Looper
 import android.view.View
 import android.view.WindowInsets
 import android.view.WindowInsetsController
+import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.activity.OnBackPressedCallback
+import androidx.activity.result.ActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.viewpager2.widget.ViewPager2
@@ -50,9 +56,33 @@ class CarDashboardActivity : AppCompatActivity() {
     private lateinit var phoneOverlay: PhoneOverlayView
     private lateinit var navAppPicker: NavAppPickerView
 
+    private lateinit var pinnedWidgetHost: PinnedWidgetHost
+    private lateinit var widgetPlaceholder: View
+    private lateinit var widgetHostContainer: FrameLayout
+    private lateinit var widgetUnpinButton: View
+    private var currentWidgetView: android.appwidget.AppWidgetHostView? = null
+
+    // Set right before launching the picker/configure intents and read back
+    // in their result handlers - more robust across OEM widget-picker
+    // implementations than trusting the id echoed back in the result Intent,
+    // which isn't consistently populated on every device.
+    private var pendingWidgetId: Int? = null
+
     private val phonePermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
     ) { phoneOverlay.refresh() }
+
+    private val widgetPickLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result -> handleWidgetPickResult(result) }
+
+    private val widgetBindLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { handleWidgetBindResult() }
+
+    private val widgetConfigureLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result -> handleWidgetConfigureResult(result) }
 
     private val clockTick = object : Runnable {
         override fun run() {
@@ -78,6 +108,14 @@ class CarDashboardActivity : AppCompatActivity() {
         phoneOverlay.onRequestPermissions = { phonePermissionLauncher.launch(PhoneAccess.PERMISSIONS) }
         navAppPicker = findViewById(R.id.navAppPicker)
         navAppPicker.onDismiss = { navAppPicker.close() }
+
+        pinnedWidgetHost = PinnedWidgetHost(this)
+        widgetPlaceholder = findViewById(R.id.widgetPlaceholder)
+        widgetHostContainer = findViewById(R.id.widgetHostContainer)
+        widgetUnpinButton = findViewById(R.id.widgetUnpinButton)
+        widgetPlaceholder.setOnClickListener { startWidgetPickFlow() }
+        widgetUnpinButton.setOnClickListener { unpinWidget() }
+        pinnedWidgetHost.pinnedWidgetId()?.let { renderPinnedWidget(it) }
 
         onBackPressedDispatcher.addCallback(
             this,
@@ -142,6 +180,19 @@ class CarDashboardActivity : AppCompatActivity() {
         super.onPause()
     }
 
+    // AppWidgetHost's own required lifecycle pairing (its docs: start/stop
+    // in onStart/onStop, not onResume/onPause) - this is what makes a pinned
+    // widget actually receive RemoteViews updates while visible.
+    override fun onStart() {
+        super.onStart()
+        pinnedWidgetHost.appWidgetHost.startListening()
+    }
+
+    override fun onStop() {
+        pinnedWidgetHost.appWidgetHost.stopListening()
+        super.onStop()
+    }
+
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) goEdgeToEdgeImmersive()
@@ -179,6 +230,148 @@ class CarDashboardActivity : AppCompatActivity() {
     /** Called by NavigateMapFragment's settings icon. */
     fun openNavAppPicker() {
         navAppPicker.open()
+    }
+
+    /**
+     * ACTION_APPWIDGET_PICK just lets the user choose a provider - it does
+     * NOT reliably grant BIND_APPWIDGET on its own (verified live on the
+     * emulator: skipping the explicit bind step below rendered the
+     * framework's own "Couldn't add widget." fallback content instead of
+     * the real widget, even though the pick+configure round trip completed
+     * normally). [AppWidgetManager.bindAppWidgetIdIfAllowed] is tried first
+     * (silently succeeds for providers this app is already trusted for);
+     * if it returns false, [AppWidgetManager.ACTION_APPWIDGET_BIND] shows
+     * the real one-time consent dialog, the same mechanism every
+     * third-party launcher uses.
+     */
+    private fun startWidgetPickFlow() {
+        val widgetId = pinnedWidgetHost.allocateWidgetId()
+        pendingWidgetId = widgetId
+        val pickIntent = Intent(AppWidgetManager.ACTION_APPWIDGET_PICK).apply {
+            putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId)
+        }
+        try {
+            widgetPickLauncher.launch(pickIntent)
+        } catch (e: ActivityNotFoundException) {
+            pendingWidgetId = null
+            pinnedWidgetHost.appWidgetHost.deleteAppWidgetId(widgetId)
+            android.util.Log.w("CarDashboardActivity", "no widget picker available on this device", e)
+        }
+    }
+
+    private fun handleWidgetPickResult(result: ActivityResult) {
+        val widgetId = pendingWidgetId
+        pendingWidgetId = null
+        if (widgetId == null || result.resultCode != Activity.RESULT_OK) {
+            widgetId?.let { pinnedWidgetHost.appWidgetHost.deleteAppWidgetId(it) }
+            return
+        }
+        val info = pinnedWidgetHost.appWidgetManager.getAppWidgetInfo(widgetId)
+        if (info == null) {
+            pinnedWidgetHost.appWidgetHost.deleteAppWidgetId(widgetId)
+            return
+        }
+        if (pinnedWidgetHost.appWidgetManager.bindAppWidgetIdIfAllowed(widgetId, info.provider)) {
+            proceedPastBind(widgetId, info)
+            return
+        }
+        pendingWidgetId = widgetId
+        val bindIntent = Intent(AppWidgetManager.ACTION_APPWIDGET_BIND).apply {
+            putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId)
+            putExtra(AppWidgetManager.EXTRA_APPWIDGET_PROVIDER, info.provider)
+        }
+        try {
+            widgetBindLauncher.launch(bindIntent)
+        } catch (e: ActivityNotFoundException) {
+            pendingWidgetId = null
+            pinnedWidgetHost.appWidgetHost.deleteAppWidgetId(widgetId)
+            android.util.Log.w("CarDashboardActivity", "no widget bind consent activity available on this device", e)
+        }
+    }
+
+    /**
+     * NOT gated on [result]'s resultCode - verified live on the emulator
+     * that `AllowBindAppWidgetActivity` returns RESULT_CANCELED even when
+     * the user taps "Create" and the bind genuinely succeeds (confirmed via
+     * [AppWidgetManager.getAppWidgetInfo] becoming non-null right after,
+     * and the widget rendering pipeline proceeding normally from there).
+     * Trusting resultCode here silently deleted every successfully-bound
+     * widget; checking the real post-bind state instead is what every
+     * production launcher actually relies on.
+     */
+    private fun handleWidgetBindResult() {
+        val widgetId = pendingWidgetId
+        pendingWidgetId = null
+        if (widgetId == null) return
+        val info = pinnedWidgetHost.appWidgetManager.getAppWidgetInfo(widgetId)
+        if (info == null) {
+            pinnedWidgetHost.appWidgetHost.deleteAppWidgetId(widgetId)
+            return
+        }
+        proceedPastBind(widgetId, info)
+    }
+
+    /**
+     * Some providers need their own configure Activity to run before the
+     * widget has real content (e.g. picking a location for a weather
+     * widget) - only finalize once that's done, or immediately if the
+     * provider doesn't declare one.
+     */
+    private fun proceedPastBind(widgetId: Int, info: android.appwidget.AppWidgetProviderInfo) {
+        val configureComponent = info.configure
+        if (configureComponent != null) {
+            pendingWidgetId = widgetId
+            val configureIntent = Intent(AppWidgetManager.ACTION_APPWIDGET_CONFIGURE).apply {
+                component = configureComponent
+                putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId)
+            }
+            try {
+                widgetConfigureLauncher.launch(configureIntent)
+            } catch (e: ActivityNotFoundException) {
+                pendingWidgetId = null
+                finalizePinnedWidget(widgetId)
+            }
+        } else {
+            finalizePinnedWidget(widgetId)
+        }
+    }
+
+    private fun handleWidgetConfigureResult(result: ActivityResult) {
+        val widgetId = pendingWidgetId
+        pendingWidgetId = null
+        if (widgetId == null) return
+        if (result.resultCode == Activity.RESULT_OK) {
+            finalizePinnedWidget(widgetId)
+        } else {
+            pinnedWidgetHost.appWidgetHost.deleteAppWidgetId(widgetId)
+        }
+    }
+
+    private fun finalizePinnedWidget(widgetId: Int) {
+        pinnedWidgetHost.persistPinned(widgetId)
+        renderPinnedWidget(widgetId)
+    }
+
+    private fun renderPinnedWidget(widgetId: Int) {
+        val hostView = pinnedWidgetHost.createHostView(widgetId) ?: return
+        currentWidgetView?.let { widgetHostContainer.removeView(it) }
+        widgetHostContainer.addView(
+            hostView,
+            FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT),
+        )
+        currentWidgetView = hostView
+        widgetPlaceholder.visibility = View.GONE
+        widgetHostContainer.visibility = View.VISIBLE
+        widgetUnpinButton.visibility = View.VISIBLE
+    }
+
+    private fun unpinWidget() {
+        currentWidgetView?.let { widgetHostContainer.removeView(it) }
+        currentWidgetView = null
+        pinnedWidgetHost.clearPinned()
+        widgetHostContainer.visibility = View.GONE
+        widgetUnpinButton.visibility = View.GONE
+        widgetPlaceholder.visibility = View.VISIBLE
     }
 
     private fun setUpTile(includeId: Int, iconRes: Int, label: String, onClick: () -> Unit) {

@@ -250,21 +250,42 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * No API exposes "the hotspot's own IP" directly; the standard trick is
-     * the first non-loopback IPv4 address on any interface, since a phone
-     * running a hotspot binds one to the AP interface (commonly 192.168.43.1
-     * on stock hotspot implementations, but OEM-dependent, hence read rather
-     * than hardcoded). Works the same for tier (a) IPv6-reachable wifi.
+     * No API exposes "the hotspot's own IP" directly. A cellular data
+     * interface (rmnet*, ccmni*, etc.) can be up at the same time as the
+     * hotspot AP interface and would otherwise win by enumeration order
+     * alone - not what "the hotspot's own IP" means, and a real latent gap
+     * (NEXT_SESSION.md) even though it wasn't the cause of either bug found
+     * so far. Prefer an interface whose name suggests AP/hotspot mode AND
+     * whose address is RFC1918 private range; fall back to any RFC1918
+     * address; fall back to the first non-loopback address as a last resort.
      */
     private fun localIpAddress(): String? = try {
-        Collections.list(NetworkInterface.getNetworkInterfaces())
-            .asSequence()
-            .flatMap { Collections.list(it.inetAddresses).asSequence() }
-            .filterIsInstance<Inet4Address>()
-            .firstOrNull { !it.isLoopbackAddress }
-            ?.hostAddress
+        val candidates = Collections.list(NetworkInterface.getNetworkInterfaces())
+            .filter { it.isUp && !it.isLoopback }
+            .flatMap { iface ->
+                Collections.list(iface.inetAddresses)
+                    .filterIsInstance<Inet4Address>()
+                    .filter { !it.isLoopbackAddress }
+                    .map { iface to it }
+            }
+        candidates.firstOrNull { (iface, addr) -> isLikelyHotspotInterface(iface.name) && isPrivateRange(addr) }
+            ?.second?.hostAddress
+            ?: candidates.firstOrNull { (_, addr) -> isPrivateRange(addr) }?.second?.hostAddress
+            ?: candidates.firstOrNull()?.second?.hostAddress
     } catch (e: SocketException) {
         null
+    }
+
+    private fun isLikelyHotspotInterface(name: String): Boolean {
+        val n = name.lowercase()
+        return n.startsWith("ap") || n.startsWith("wlan") || n.startsWith("swlan") || n.startsWith("softap")
+    }
+
+    private fun isPrivateRange(addr: Inet4Address): Boolean {
+        val b = addr.address
+        val b0 = b[0].toInt() and 0xFF
+        val b1 = b[1].toInt() and 0xFF
+        return b0 == 10 || (b0 == 172 && b1 in 16..31) || (b0 == 192 && b1 == 168)
     }
 
     /** IPv6 literals need brackets in a URL authority (`[2001:db8::1]:8080`); IPv4 doesn't. */

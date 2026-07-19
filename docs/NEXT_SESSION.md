@@ -46,6 +46,180 @@
 > `brand.json`, a `Makefile`, and a `legal/` directory (privacy policy,
 > terms, processing register, trademark note - all drafts, all flagged
 > `[MENS]`/needs-real-legal-review, not published-ready).
+> Session 7 picked up three of the non-hardware items this doc had left
+> open: fixed `MainActivity.localIpAddress()`'s known latent gap (now
+> prefers the hotspot AP interface over a simultaneously-up cellular one),
+> implemented the full ARCHITECTURE.md §5 adaptive-quality ladder
+> (framerate then bitrate then resolution, with hysteresis - previously
+> bitrate-only), and built the generic AppWidgetHost "pin any widget" tile.
+> The widget tile surfaced a real, non-obvious platform bug along the way
+> (`ACTION_APPWIDGET_BIND` returns `RESULT_CANCELED` on this Android 16
+> build even when the user approves and the bind genuinely succeeds) - see
+> that section for the fix and how it was isolated from a second, unrelated
+> failure (this emulator's Google Play services stub can't render any
+> Google-widget content at all, not an app bug).
+
+## Session 7: three non-hardware NEXT_SESSION items
+
+### `MainActivity.localIpAddress()`: prefer the hotspot interface
+Small, self-contained fix for the gap flagged since session 4: the old
+"first non-loopback IPv4 address" heuristic had no preference for the
+actual hotspot/AP interface over e.g. a simultaneously-up cellular data
+interface. Now prefers an interface whose name suggests AP/hotspot mode
+(`ap*`, `wlan*`, `swlan*`, `softap*`) AND whose address is RFC1918
+private range; falls back to any RFC1918 address; falls back to the first
+non-loopback address as a last resort. Compiles clean; not separately
+exercised live this session since the emulator's actual connection path
+went through the tier (c) VPN address the whole time (see below), which
+bypasses this function entirely - it's the same fallback path documented
+as a latent gap since session 4, still real, just not the path that fired
+during this session's testing.
+
+### Adaptive quality ladder: framerate + bitrate + resolution, with hysteresis
+`CaptureService.kt` previously only implemented the bitrate lever of
+ARCHITECTURE.md §5's three-lever ladder ("drop framerate first
+(60->30->24), then bitrate steps, then resolution tier. Recover in the
+same order, reversed, with hysteresis"). Now implements all three:
+
+- `frameRateSteps = [30, 24, 18]` - starts one tier "in" from the doc's
+  literal 60->30->24 sequence since `H264Encoder`'s real default here is
+  already 30, not 60; extended one step further (18) since bitrate is the
+  next lever after framerate is exhausted either way. ASSUMED tiers, not
+  yet MEASURED.
+- `resolutionScaleSteps = [1.0, 0.75, 0.5]` - scales from `baseWidth`/
+  `baseHeight` (the real, unscaled viewport dims from the car's `hello`),
+  never from the currently-scaled `currentWidth`/`currentHeight`, so
+  repeated down-steps don't compound a shrink onto an already-shrunk size.
+  A fresh `hello` (e.g. the car reconnecting) updates `baseWidth`/
+  `baseHeight` and reconfigures at whatever resolution-ladder tier is
+  currently active, rather than discarding the active tier.
+- Framerate and resolution changes both require a full encoder/
+  VirtualDisplay reconfigure (`reconfigureEncoderForLadder()`, same
+  stop/recreate pattern `resize()` already used) - MediaCodec doesn't
+  support live resize or live framerate change of a Surface-input encoder.
+  Bitrate remains the one lever `MediaCodec.setParameters
+  (PARAMETER_KEY_VIDEO_BITRATE)` can step live, no reconfigure needed.
+  **Real bug caught by this refactor**: recreating the encoder for a
+  framerate/resolution step used to implicitly reset bitrate to
+  `H264Encoder`'s 8 Mbps default via its constructor default parameter,
+  silently undoing any prior bitrate-ladder step the moment a
+  framerate/resolution step fired after it - fixed by threading
+  `currentBitrateBps` through explicitly on every reconstruction.
+- Down-steps try framerate first, then bitrate, then resolution (matches
+  the doc's stated priority - framerate is a barely-visible sacrifice, a
+  full IDR-triggering resolution change is the most visible/disruptive so
+  it's the option of last resort). Up-steps reverse the order (resolution
+  recovers first since it was dropped last, framerate recovers last).
+- Hysteresis: a 3-second cooldown (`ladderStepCooldownMs`, unmeasured
+  placeholder like the step sizes) between any two ladder moves, since a
+  bursty congestion signal calling `adjustQualityForRequest()` rapidly
+  would otherwise thrash the framerate/resolution levers' visible
+  reconfigure hiccup on every call.
+
+Compiles clean, zero warnings. **Not exercised live this session** - there
+is no way to synthesize WS `bufferedAmount` congestion or drive
+`onQualityRequest` from the emulator without a real strained network link
+or a fake congestion-injecting harness, neither of which exist yet. The
+ladder logic itself was read through carefully for correctness (each lever
+transition, the hysteresis gate, the bitrate-reset bug above) but the
+actual on-device behavior under real congestion is still ASSUMED, same
+honesty bar as the constants themselves - a real Gate-2 measurement pass
+is still the thing that turns these into MEASURED defaults.
+
+### Generic "pin any widget" tile - real, built, one real platform bug found and fixed
+The deferred feature from session 6's Messages-widget research
+(`AppWidgetHost` embedding, "right fit for things that will never get
+bespoke integration - Home Assistant, weather, a manufacturer's own
+widget"). New files: `dashboard/PinnedWidgetHost.kt` (thin `AppWidgetHost`/
+`AppWidgetManager` wrapper, persists one pinned widget id in
+`SharedPreferences`), `res/layout/dash_tile_widget.xml` (empty-state "+"
+placeholder matching the existing tile look, a host `FrameLayout` for the
+real `AppWidgetHostView` once pinned, a small unpin "x" button). Added as
+a 4th tile in `tilesColumn` (`activity_car_dashboard.xml`) alongside
+Navigate/Phone/Messages - verified live the 4-tile column still fits and
+reads cleanly at car-viewport proportions, no layout squeeze.
+
+Flow (`CarDashboardActivity.kt`): allocate a widget id ->
+`ACTION_APPWIDGET_PICK` (the system's own picker, no special permission
+needed to show it) -> `AppWidgetManager.bindAppWidgetIdIfAllowed()` ->
+`ACTION_APPWIDGET_BIND` consent dialog if that returns false ->
+`ACTION_APPWIDGET_CONFIGURE` if the provider declares one -> persist +
+render. `AppWidgetHost.startListening()`/`stopListening()` wired to
+`onStart()`/`onStop()` per the API's own required lifecycle pairing.
+Unpin button calls `AppWidgetHost.deleteAppWidgetId()` and clears the
+persisted id. A stale persisted id (the widget's own app since
+uninstalled) is detected and cleared automatically on next load via
+`AppWidgetManager.getAppWidgetInfo()` returning null.
+
+**Real bug found and fixed via live testing on the emulator, worth
+remembering**: the initial implementation trusted `ActivityResult
+.resultCode` from the `ACTION_APPWIDGET_BIND` consent dialog to decide
+whether the user approved - `RESULT_OK` meant proceed, anything else
+meant delete the id and bail. On this Android 16 build,
+**`AllowBindAppWidgetActivity` returns `RESULT_CANCELED` even when the
+user taps "Create" and the bind genuinely succeeds** (confirmed by
+instrumented logging: `AppWidgetManager.getAppWidgetInfo(widgetId)` comes
+back fully populated immediately after, and the widget's own provider
+receives real lifecycle broadcasts) - trusting resultCode silently deleted
+every successfully-bound widget right after binding it, which is exactly
+what made the first several live-test attempts fail with the framework's
+own "Couldn't add widget." fallback text (a red herring at first glance -
+it looked like a content-rendering failure, but the widget had already
+been deleted by the app's own code by the time that view rendered). Fixed
+by not gating on resultCode at all - checking `getAppWidgetInfo()` for
+real post-bind state instead, which is what production launchers actually
+rely on. This is the one piece of this session's widget work that's a
+confirmed, generalizable app-level bug fix, not just an emulator
+limitation.
+
+**Verified structurally end-to-end on the emulator**: allocate -> pick
+(tested against "Battery", "At a Glance", and "Analog") -> bind-consent
+dialog appears and resolves correctly with the fix above -> configure
+Activity runs for providers that declare one (Analog's real "Select a
+Clock Face" screen, confirmed launching and returning correctly) ->
+`finalizePinnedWidget()` persists the id and renders `AppWidgetHostView` ->
+unpin correctly tears down and reverts to the placeholder -> **the pinned
+id survives an app reinstall and relaunch** (real `SharedPreferences`
+persistence, confirmed by killing and reinstalling the APK mid-session and
+seeing the same widget id attempt to restore on next launch).
+
+**NOT verified: real widget content actually painting.** Every widget
+available in this AVD's picker (`Battery`, `At a Glance`,
+`com.google.android.settings.intelligence`; `Analog`,
+`com.google.android.deskclock`) is a Google-signed system widget, and
+every one hits the same `AppWidgetHostView` failure once bound:
+`Caused by: java.io.FileNotFoundException: New version of Google Play
+services needed. It will update itself shortly.` - this AVD's GMS Core
+build is a stub that can't resolve these providers' `RemoteViews`
+resources without a real Play Store update, which needs a signed-in
+Google account and real internet access this environment doesn't have.
+Root-caused via instrumented logging, not guessed: the pick/bind/persist
+pipeline above completes successfully every time (confirmed by
+`AppWidgetManager.getAppWidgetInfo()` returning valid info and
+`dumpsys appwidget` showing a real bound widget), and the failure is
+squarely inside `AppWidgetHostView.getDefaultView()`'s own resource
+inflation, several frames past anything this app's code touches. A real
+third-party widget from an app installed the normal way (not a GMS system
+widget) would very plausibly render fine - this is the same class of
+"can't fully verify without different real-world conditions" gap this
+project has flagged honestly elsewhere (tier (a)/(c) real-Tesla
+reachability, live MediaSession content). Confirm against a real widget
+(e.g. anything from a regular Play Store app, or a real device with
+up-to-date Play services) before trusting content rendering, not just the
+pin/persist mechanics.
+
+**Testing note for whoever picks up accessibility-gated work next**: this
+session hit a real Android 13+ "restricted settings" gate - a sideloaded
+app's accessibility service can be entered into
+`Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES` via `adb shell settings
+put` and still silently fail to actually bind (`dumpsys accessibility`
+shows empty `Enabled services`) until the restriction is cleared with
+`adb shell cmd appops set <pkg> ACCESS_RESTRICTED_SETTINGS allow` (or by
+toggling it through the real Settings UI once by hand, the trusted path a
+real user would take). Confirmed this is an environment/tooling quirk, not
+an app bug - `VehplayerAccessibilityService` itself was never at fault.
+Worth remembering before assuming a fresh emulator/AVD image is
+mis-configured next time this flow needs re-testing from a clean install.
 
 ## Session 6: real dashboard integrations + a real connectivity bug fix
 
@@ -254,8 +428,10 @@ worth building anything for this.**
   warm-dark Space Grotesk visual language.
 - **Real-hardware validation of tier (a)/(c)** (see above) - the single
   biggest remaining unknown, blocks trusting the whole connectivity fix.
-- **Generic AppWidgetHost "pin any widget" tile** - real, buildable,
-  deliberately deferred (see Messages section above).
+- ~~**Generic AppWidgetHost "pin any widget" tile**~~ - built session 7, see
+  that section. Pin/persist mechanics verified end to end; real widget
+  content rendering still needs a real device or a real Play Store update
+  to confirm (this AVD's GMS stub blocks it for every available widget).
 
 ### Market/business/legal restructuring (session 6, second half)
 Triggered by the user uploading three documents mid-session; one

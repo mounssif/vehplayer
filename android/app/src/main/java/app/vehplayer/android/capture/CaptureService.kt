@@ -70,6 +70,15 @@ class CaptureService : Service() {
     private var audioCapture: PlaybackAudioCapture? = null
     private var currentWidth = 0
     private var currentHeight = 0
+    private var currentFrameRate = 30
+
+    // The real, unscaled viewport dims reported by the car's `hello` (or the
+    // boot-time placeholder before one arrives) - the resolution-tier lever
+    // below scales FROM this, never from currentWidth/currentHeight, so
+    // repeated ladder steps don't compound a shrink onto an already-shrunk
+    // size.
+    private var baseWidth = 1280
+    private var baseHeight = 800
 
     private var httpServer: HttpAssetServer? = null
 
@@ -118,8 +127,8 @@ class CaptureService : Service() {
         }
         val width = intent.getIntExtra(EXTRA_WIDTH, 1280)
         val height = intent.getIntExtra(EXTRA_HEIGHT, 800)
-        currentWidth = width
-        currentHeight = height
+        baseWidth = width
+        baseHeight = height
         instance = this
 
         val projectionManager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
@@ -142,7 +151,7 @@ class CaptureService : Service() {
                 app.vehplayer.android.input.VehplayerAccessibilityService.instance?.handleInputEvent(event)
                     ?: android.util.Log.w("CaptureService", "input event dropped, accessibility service not enabled/connected")
             },
-            onQualityRequest = { direction -> encoder?.let { adjustBitrateForQualityRequest(it, direction) } },
+            onQualityRequest = { direction -> adjustQualityForRequest(direction) },
             onHello = { viewportW, viewportH, dpr -> resize(viewportW, viewportH, dpr) },
         )
         localServer.start()
@@ -150,7 +159,8 @@ class CaptureService : Service() {
         ServerHolder.server = localServer
 
         startHttpServerWithRetry()
-        startEncoderAndDisplay(projection, width, height)
+        val (initW, initH) = scaledDims()
+        startEncoderAndDisplay(projection, initW, initH, frameRateSteps[frameRateStepIndex])
 
         if (lowLatencyAudio) {
             val capture = PlaybackAudioCapture(projection) { payload, ptsUs ->
@@ -178,10 +188,10 @@ class CaptureService : Service() {
      * to change resolution (MediaCodec doesn't support live resize of a
      * Surface-input encoder).
      */
-    private fun startEncoderAndDisplay(projection: MediaProjection, width: Int, height: Int) {
+    private fun startEncoderAndDisplay(projection: MediaProjection, width: Int, height: Int, frameRate: Int) {
         val localServer = server ?: return
 
-        val videoEncoder = H264Encoder(width, height) { payload, isKeyframe, isConfig, ptsUs ->
+        val videoEncoder = H264Encoder(width, height, bitrateBps = currentBitrateBps, frameRate = frameRate) { payload, isKeyframe, isConfig, ptsUs ->
             val videoFlags = (if (isKeyframe) WireProtocol.VideoFlag.KEYFRAME else 0) or
                 (if (isConfig) WireProtocol.VideoFlag.CONFIG else 0)
             localServer.broadcastVideoFrame(payload, videoFlags, ptsUs)
@@ -206,6 +216,7 @@ class CaptureService : Service() {
         )
         currentWidth = width
         currentHeight = height
+        currentFrameRate = frameRate
     }
 
     /**
@@ -217,21 +228,40 @@ class CaptureService : Service() {
      * placeholder until this fires for the first time.
      */
     private fun resize(viewportW: Int, viewportH: Int, dpr: Double) {
-        val projection = mediaProjection ?: return
         if (viewportW <= 0 || viewportH <= 0) return
 
         // H.264 4:2:0 needs even dimensions; round down so we never exceed
-        // the reported viewport.
+        // the reported viewport. This is the real, unscaled base size - any
+        // active resolution-ladder step still applies on top of it (see
+        // scaledDims()), not thrown away by a fresh hello.
         val width = (Math.round(viewportW * dpr).toInt()).let { it - (it % 2) }.coerceAtLeast(2)
         val height = (Math.round(viewportH * dpr).toInt()).let { it - (it % 2) }.coerceAtLeast(2)
-        if (width == currentWidth && height == currentHeight) return
+        if (width == baseWidth && height == baseHeight) return
+        baseWidth = width
+        baseHeight = height
+
+        reconfigureEncoderForLadder()
+    }
+
+    private fun reconfigureEncoderForLadder() {
+        val projection = mediaProjection ?: return
+        val (width, height) = scaledDims()
+        val frameRate = frameRateSteps[frameRateStepIndex]
+        if (width == currentWidth && height == currentHeight && frameRate == currentFrameRate) return
 
         virtualDisplay?.release()
         virtualDisplay = null
         encoder?.stop()
         encoder = null
 
-        startEncoderAndDisplay(projection, width, height)
+        startEncoderAndDisplay(projection, width, height, frameRate)
+    }
+
+    private fun scaledDims(): Pair<Int, Int> {
+        val scale = resolutionScaleSteps[resolutionScaleStepIndex]
+        val width = (Math.round(baseWidth * scale).toInt()).let { it - (it % 2) }.coerceAtLeast(2)
+        val height = (Math.round(baseHeight * scale).toInt()).let { it - (it % 2) }.coerceAtLeast(2)
+        return width to height
     }
 
     /**
@@ -278,27 +308,81 @@ class CaptureService : Service() {
         mediaProjection = null
     }
 
-    /**
-     * ARCHITECTURE.md §5: "Ladder: drop framerate first (60->30->24), then
-     * bitrate steps, then resolution tier." Framerate/resolution steps need
-     * encoder reconfiguration (more invasive, causes a visible hiccup);
-     * bitrate is the cheap first lever MediaCodec supports live via
-     * PARAMETER_KEY_VIDEO_BITRATE, so that's all this does for now.
-     * TODO(claude-code): implement the framerate/resolution steps of the
-     * ladder once Gate 2 numbers show bitrate-only isn't enough headroom,
-     * per ARCHITECTURE.md §5's full ladder and its hysteresis requirement.
-     */
-    private fun adjustBitrateForQualityRequest(enc: H264Encoder, direction: String) {
-        val step = 1_500_000 // 1.5 Mbps per step, unmeasured placeholder
-        currentBitrateBps = when (direction) {
-            "down" -> (currentBitrateBps - step).coerceAtLeast(2_000_000)
-            "up" -> (currentBitrateBps + step).coerceAtMost(12_000_000) // ARCHITECTURE.md §2 ceiling
-            else -> currentBitrateBps
+    // ARCHITECTURE.md §5: "Ladder: drop framerate first (60->30->24), then
+    // bitrate steps, then resolution tier. Recover in the same order,
+    // reversed, with hysteresis." All three levers below are ASSUMED tiers
+    // (not yet MEASURED against real Gate-2 numbers): the doc's own 60->30->24
+    // framerate sequence assumes a 60fps starting point, but H264Encoder's
+    // real default here is already 30, so this ladder starts one tier "in"
+    // from the doc's literal numbers and adds one step further (18) since
+    // there was nowhere else to go before falling through to bitrate.
+    private val frameRateSteps = listOf(30, 24, 18)
+    private val resolutionScaleSteps = listOf(1.0, 0.75, 0.5)
+    private var frameRateStepIndex = 0
+    private var resolutionScaleStepIndex = 0
+    private var currentBitrateBps = 8_000_000 // ARCHITECTURE.md §2 mid default
+
+    private val bitrateStepBps = 1_500_000 // unmeasured placeholder
+    private val bitrateFloorBps = 2_000_000
+    private val bitrateCeilingBps = 12_000_000 // ARCHITECTURE.md §2 ceiling
+
+    // Hysteresis: a ladder step causes a visible hiccup for the framerate/
+    // resolution levers (encoder reconfigure) and shouldn't fire faster than
+    // the congestion signal itself can meaningfully change - without this, a
+    // bursty signal can thrash the ladder up and down every call.
+    // Unmeasured placeholder, same honesty caveat as the step sizes above.
+    private val ladderStepCooldownMs = 3_000L
+    private var lastLadderStepAtMs = 0L
+
+    private fun adjustQualityForRequest(direction: String) {
+        if (android.os.SystemClock.elapsedRealtime() - lastLadderStepAtMs < ladderStepCooldownMs) return
+        val stepped = when (direction) {
+            "down" -> stepQualityDown()
+            "up" -> stepQualityUp()
+            else -> false
         }
-        enc.setBitrate(currentBitrateBps)
+        if (stepped) lastLadderStepAtMs = android.os.SystemClock.elapsedRealtime()
     }
 
-    private var currentBitrateBps = 8_000_000
+    /** Worsen quality one lever at a time: framerate, then bitrate, then resolution. */
+    private fun stepQualityDown(): Boolean = when {
+        frameRateStepIndex < frameRateSteps.lastIndex -> {
+            frameRateStepIndex++
+            reconfigureEncoderForLadder()
+            true
+        }
+        currentBitrateBps > bitrateFloorBps -> {
+            currentBitrateBps = (currentBitrateBps - bitrateStepBps).coerceAtLeast(bitrateFloorBps)
+            encoder?.setBitrate(currentBitrateBps)
+            true
+        }
+        resolutionScaleStepIndex < resolutionScaleSteps.lastIndex -> {
+            resolutionScaleStepIndex++
+            reconfigureEncoderForLadder()
+            true
+        }
+        else -> false // already at the floor on every lever
+    }
+
+    /** Recover in the reverse order: resolution (dropped last) first, then bitrate, then framerate. */
+    private fun stepQualityUp(): Boolean = when {
+        resolutionScaleStepIndex > 0 -> {
+            resolutionScaleStepIndex--
+            reconfigureEncoderForLadder()
+            true
+        }
+        currentBitrateBps < bitrateCeilingBps -> {
+            currentBitrateBps = (currentBitrateBps + bitrateStepBps).coerceAtMost(bitrateCeilingBps)
+            encoder?.setBitrate(currentBitrateBps)
+            true
+        }
+        frameRateStepIndex > 0 -> {
+            frameRateStepIndex--
+            reconfigureEncoderForLadder()
+            true
+        }
+        else -> false // already at the ceiling on every lever
+    }
 
     private fun buildNotification(): Notification {
         val nm = getSystemService(NotificationManager::class.java)
