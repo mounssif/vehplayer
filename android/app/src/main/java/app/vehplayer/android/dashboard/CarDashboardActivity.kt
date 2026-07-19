@@ -409,6 +409,14 @@ class CarDashboardActivity : AppCompatActivity() {
                 append("\nhotspot ").append(hotspotIp)
                 if (hotspotIface != null) append(" (").append(hotspotIface).append(')')
             }
+            // Live reachability counters (zero-adb): reopen this card after a
+            // car-side attempt - any nonzero proves packets DO arrive here.
+            app.vehplayer.android.capture.CaptureService.instance?.let { svc ->
+                val (httpHits, stunHits) = svc.probeHitCounts
+                append("\n\nreached from network: HTTP ").append(httpHits)
+                    .append("x / STUN ").append(stunHits)
+                    .append("x (reopen after a car attempt; nonzero = packets arrive)")
+            }
             if (probeUrl != null) append("\n\nscan with a phone/laptop on the hotspot: connectivity probe runs itself")
         }
         overlay.visibility = View.VISIBLE

@@ -38,8 +38,21 @@ class HttpAssetServer(
         private const val CDN_BASE_URL = "https://veh.modev.be"
     }
 
+    /**
+     * Zero-adb reachability counter, shown in the dashboard's connect-info
+     * overlay: any request at all proves TCP from the client reached this
+     * server. Session 9's ERR_CONNECTION_REFUSED in the car was ambiguous
+     * between "car firewall refuses RFC1918" and "packet arrived but nothing
+     * was listening" - a glance at this counter after a car attempt settles
+     * that class of question without a laptop.
+     */
+    @Volatile
+    var requestCount = 0
+        private set
+
     override fun serve(session: IHTTPSession): Response {
         val uri = session.uri
+        requestCount++
 
         if (uri == "/go" || uri == "/go/") {
             val token = PairingToken.generate()

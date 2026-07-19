@@ -96,6 +96,14 @@ class CaptureService : Service() {
     var httpServerPort: Int? = null
         private set
 
+    /**
+     * (HTTP requests served, STUN bindings answered) - the zero-adb
+     * reachability counters, read by the dashboard's connect-info overlay
+     * so a car-side attempt can be verified from the phone screen alone.
+     */
+    val probeHitCounts: Pair<Int, Int>
+        get() = (httpServer?.requestCount ?: 0) to (probeStunServer?.answeredCount ?: 0)
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {

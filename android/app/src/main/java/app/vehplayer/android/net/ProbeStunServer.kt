@@ -40,6 +40,15 @@ class ProbeStunServer(private val port: Int = DEFAULT_PORT) {
     @Volatile
     private var socket: DatagramSocket? = null
 
+    /**
+     * Zero-adb counter (same idea as HttpAssetServer.requestCount): >0 after
+     * a car probe run means UDP genuinely traverses car -> AP -> this socket,
+     * without needing `adb logcat -s ProbeStunServer` at the car.
+     */
+    @Volatile
+    var answeredCount = 0
+        private set
+
     fun start() {
         if (socket != null) return
         val s = DatagramSocket(port)
@@ -64,6 +73,7 @@ class ProbeStunServer(private val port: Int = DEFAULT_PORT) {
                 s.receive(packet)
                 val reply = buildBindingResponse(packet) ?: continue
                 s.send(DatagramPacket(reply, reply.size, packet.address, packet.port))
+                answeredCount++
                 Log.i(TAG, "answered STUN binding from ${packet.address}:${packet.port}")
             } catch (e: Exception) {
                 if (!s.isClosed) Log.w(TAG, "receive loop error: ${e.message}")
