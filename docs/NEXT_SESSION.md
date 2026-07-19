@@ -132,6 +132,52 @@ a previous session's process → new session on 8081, both listening,
 when reading `netstat` output during debugging: two listeners is normal
 after a restart, the shown URL's port is the live one.
 
+### Session 7 wrap-up: the remote-research plan (written as the car/laptop battery died)
+
+Full diagnostic dumps from the real phone captured before disconnect
+(connectivity, trafficcontroller incl. the ingress-discard map, tethering,
+telephony, carrier_config, getprop, all routing tables/rules, softap
+state) - were in the session scratchpad; the load-bearing findings are all
+already written into this doc and ARCHITECTURE.md §7. The real Tesla's
+hotspot-assigned IP that night was `10.117.161.201` (RFC1918, only useful
+as a probe target next in-car session, not as a serving address).
+
+**The genuinely promising unexplored angle: WebRTC.** Every app in the
+TeslAA/TeslaMirror lineage (including our tier (c)) fights the RFC1918
+block at the HTTP-navigation layer with virtual-IP tricks - which Android
+14+ has now killed. WebRTC sidesteps the entire fight:
+- The car loads our webclient from `veh.modev.be` (public CDN, always
+  allowed). Signaling (SDP/ICE exchange) goes through the cloud Worker -
+  **control plane only, tiny JSON blobs, fully compliant with the
+  "cloud never sees a video frame" principle**.
+- Media then flows peer-to-peer over the hotspot link as WebRTC
+  UDP/SRTP - the phone's endpoint binds on the AP interface's own real
+  address (strong-host model satisfied, no VPN, no tun0, no ingress
+  discard involvement at all).
+- Open unknowns to research/test, in order: (1) does Tesla's Chromium
+  expose working WebRTC APIs (REPORTED evidence to find online); (2) does
+  the RFC1918 block apply only to HTTP navigation/fetch or also to ICE
+  UDP flows (likely navigation-only, since ICE isn't an HTTP load - but
+  ASSUMED until the in-car probe says otherwise); (3) Chrome's mDNS ICE
+  candidate obfuscation - the phone side may need to answer/resolve
+  `.local` mDNS on the AP link (a plain multicast UDP socket, no special
+  permissions, doable in-app); (4) whether a data-channel-only transport
+  (keeping the existing WebCodecs pipeline, just swapping WS for
+  RTCDataChannel) or a full WebRTC H.264 video track (native hardware
+  decode, built-in congestion control) is the better endgame.
+- **Next in-car session should carry an S1-style probe page** hosted on
+  veh.modev.be: big pass/fail text on screen (readable/photographable in
+  the car without adb) testing (a) fetch to an RFC1918 address, (b) WS to
+  RFC1918, (c) WebRTC ICE candidate gathering + a loopback/data-channel
+  attempt against the phone. One page, five minutes of car time, settles
+  the whole direction.
+
+**Also do before the next car trip** (no car needed): the in-app
+diagnostics screen (chosen tier, resolved address, live "did anything
+ever connect" counters - this session burned a lot of time reconstructing
+exactly that from photos); tier (a) IPv6 end-to-end on the emulator; the
+founder's APN-protocol check (IPv4/IPv6) on the data SIM.
+
 ## Session 7: three non-hardware NEXT_SESSION items
 
 ### `MainActivity.localIpAddress()`: prefer the hotspot interface
