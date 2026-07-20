@@ -173,6 +173,24 @@ foundational architecture doc on a chat-recalled description alone, even
 a confident one ("bijna 90%", founder's own words this session). Worth
 revisiting the moment `video-test.html` actually runs in the car.
 
+**Follow-up research added this session**: `docs/MEDIAMTX_HLS_RESEARCH.md`
+answers the founder's MediaMTX / cheap-hardware / secure-delivery
+questions in one memo. Headlines: MediaMTX is a single MIT-licensed Go
+binary that runs fine on a ~$15-18 Pi Zero 2 W (remux is near-trivial, no
+transcode since the phone already emits H.264), so both self-host and a
+~$49 sold box are viable. But the whole HLS-in-Drive question collapses
+onto the same probe: the Tesla browser is Chromium 140, which has **no
+native HLS** (that landed in Chromium 142), so HLS must go through
+hls.js/MSE, which is a `<video>` element, which is exactly what row C of
+`video-test.html` tests. If the Drive suppression is real, HLS is
+Park-only; if session 10's tiktok/youtube observation holds, HLS becomes
+viable in Drive too. Either way MediaMTX stays LAN-local plumbing, never a
+cloud media relay (honors "cloud is control plane only"). Nothing was
+wired into the Makefile or app yet, on purpose, it waits behind the
+row-C result. Note: `video-test.html` row B (native HLS) will read SKIP in
+the car for the same Chromium-140 reason, which is a correct, expected
+result, not a bug.
+
 ## Session 8: WebRTC probe built + widget slides rework (real user feedback round)
 
 Two tracks: the WebRTC direction from session 7's wrap-up got its full
