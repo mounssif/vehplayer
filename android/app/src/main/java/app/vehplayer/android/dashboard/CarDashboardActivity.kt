@@ -3,7 +3,11 @@ package app.vehplayer.android.dashboard
 import android.app.Activity
 import android.appwidget.AppWidgetManager
 import android.content.ActivityNotFoundException
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
+import android.widget.Toast
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -398,8 +402,31 @@ class CarDashboardActivity : AppCompatActivity() {
     private fun showConnectionInfo(url: String, hotspotIp: String?, hotspotIface: String?, probeUrl: String?) {
         val overlay = findViewById<FrameLayout>(R.id.probeQrOverlay)
         val image = findViewById<ImageView>(R.id.probeQrImage)
-        if (probeUrl != null && image.drawable == null) {
-            runCatching { image.setImageBitmap(qrBitmap(probeUrl, 720)) }
+
+        val v6 = app.vehplayer.android.net.Ipv6Report.globalV6()
+        val v6Port = app.vehplayer.android.capture.CaptureService.instance?.httpServerPort
+        // Once IPv6 tethering is live (tier a), a hotspot-exposed GUA is the
+        // address that actually dodges Tesla's RFC1918 block - prefer it for
+        // the scan QR so a laptop grabs the long IPv6 URL by scanning, no
+        // typing/copying. Falls back to the IPv4 probe URL.
+        val bestV6 = (v6.firstOrNull { it.hotspot } ?: v6.firstOrNull())?.let { entry ->
+            v6Port?.let { "http://[${entry.address}]:$it/diag" }
+        }
+        val scanUrl = bestV6 ?: probeUrl
+
+        // Long-press anywhere on the card copies the scan URL to the clipboard
+        // (founder ask: a whole IPv6 is miserable to retype). Toast confirms.
+        scanUrl?.let { copyable ->
+            overlay.setOnLongClickListener {
+                val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                cm.setPrimaryClip(ClipData.newPlainText("vehplayer URL", copyable))
+                Toast.makeText(this, "Copied: $copyable", Toast.LENGTH_LONG).show()
+                true
+            }
+        }
+
+        if (scanUrl != null) {
+            runCatching { image.setImageBitmap(qrBitmap(scanUrl, 720)) }
                 .onFailure { android.util.Log.w("CarDashboardActivity", "QR render failed", it) }
         }
         image.visibility = if (image.drawable != null) View.VISIBLE else View.GONE
@@ -425,8 +452,6 @@ class CarDashboardActivity : AppCompatActivity() {
             // loads is a phone address the car/laptop can actually reach over
             // IPv6 (bracketed per URL syntax). This is the tier-(a) reachability
             // test - GUA is outside Tesla's RFC1918 block.
-            val v6 = app.vehplayer.android.net.Ipv6Report.globalV6()
-            val v6Port = app.vehplayer.android.capture.CaptureService.instance?.httpServerPort
             if (v6.isNotEmpty() && v6Port != null) {
                 append("\n\nIPv6 test URLs (open from a device on the hotspot; whichever loads = reachable):")
                 v6.forEach { append("\n  http://[").append(it.address).append("]:").append(v6Port).append("/diag") }
@@ -435,6 +460,10 @@ class CarDashboardActivity : AppCompatActivity() {
                 append("\n\nIn the car type this URL (or scan it with a phone/laptop on the hotspot): ")
                 append(probeUrl)
                 append("\nIt runs the full test itself and reports the result back here.")
+            }
+            if (scanUrl != null) {
+                append("\n\nQR above = ").append(if (bestV6 != null) "the IPv6 test URL" else "this URL")
+                    .append(". Long-press this card to copy it.")
             }
         }
         overlay.visibility = View.VISIBLE

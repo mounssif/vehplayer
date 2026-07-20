@@ -61,8 +61,19 @@ class HttpAssetServer(
 
         if (uri == "/go" || uri == "/go/") {
             val token = PairingToken.generate()
-            val host = session.headers["host"]?.substringBefore(':') ?: "localhost"
-            val wsUrl = "ws://$host:$wsPort/"
+            // Host header may be an IPv6 literal like "[2a02:a020::1]:8081"
+            // (tier a) - naive substringBefore(':') would mangle it to
+            // "[2a02". Extract the host part correctly and re-bracket IPv6 for
+            // the ws URL authority so the mirror data channel connects over
+            // IPv6, not just IPv4.
+            val hostHeader = session.headers["host"] ?: "localhost:$listeningPort"
+            val hostOnly = if (hostHeader.startsWith("[")) {
+                hostHeader.substringAfter('[').substringBefore(']')
+            } else {
+                hostHeader.substringBefore(':')
+            }
+            val wsHost = if (hostOnly.contains(':')) "[$hostOnly]" else hostOnly
+            val wsUrl = "ws://$wsHost:$wsPort/"
             // Serve the client from the phone's OWN http origin, NOT the https
             // CDN (session 9, MEASURED): a client loaded over https can never
             // open ws:// to the phone - browsers reject it as insecure mixed
@@ -72,7 +83,6 @@ class HttpAssetServer(
             // assets (this is also strictly more "data plane local"). The
             // CDN copy stays reachable for the probe/diag pages, just not for
             // the ws-dependent client.
-            val hostHeader = session.headers["host"] ?: "$host:$listeningPort"
             val redirectTo = "http://$hostHeader/index.html?token=$token&ws=${URLEncoder.encode(wsUrl, "UTF-8")}"
             return newFixedLengthResponse(Response.Status.REDIRECT, "text/plain", "").apply {
                 addHeader("Location", redirectTo)
