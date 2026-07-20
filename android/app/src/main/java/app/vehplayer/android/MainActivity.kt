@@ -276,18 +276,11 @@ class MainActivity : AppCompatActivity() {
             startActivity(ApkInstaller.installPermissionSettingsIntent(this))
             return
         }
-        // Installing while a MediaProjection screen share is active silently
-        // fails on this device (founder-observed, session 9: Update did
-        // nothing while streaming, worked immediately after a force-stop -
-        // consistent with the platform/OEM anti-scam block on the installer
-        // sheet during screen sharing). The update replaces the process
-        // anyway, so stop the stream first instead of letting the tap
-        // no-op.
-        if (app.vehplayer.android.capture.CaptureService.instance != null) {
-            setStatus("Stopping the stream first (updates can't install while screen sharing is active)...")
-            stopService(Intent(this, app.vehplayer.android.capture.CaptureService::class.java))
-            stopService(Intent(this, app.vehplayer.android.net.VpnReachabilityService::class.java))
-        }
+        // No need to stop the stream or the VPN: the download now runs in-app,
+        // and the app process is excluded from the reachability VpnService, so
+        // it bypasses the tun that was silently stalling the old
+        // DownloadManager path while the VPN ("key" icon) was up. See
+        // ApkInstaller.downloadAndInstall.
         setStatus("Downloading update...")
         ApkInstaller.downloadAndInstall(this, update.downloadUrl) { message -> setStatus(message) }
     }

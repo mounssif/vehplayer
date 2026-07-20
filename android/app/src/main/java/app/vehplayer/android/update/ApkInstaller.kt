@@ -1,19 +1,16 @@
 package app.vehplayer.android.update
 
-import android.app.DownloadManager
-import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
-import android.database.Cursor
 import android.net.Uri
-import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import android.util.Log
 import androidx.core.content.FileProvider
 import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
 
 /**
  * Downloads a release APK in-app and hands it straight to the system
@@ -26,7 +23,6 @@ import java.io.File
 object ApkInstaller {
     private const val TAG = "ApkInstaller"
     private const val FILE_NAME = "vehplayer-update.apk"
-    private const val POLL_INTERVAL_MS = 400L
 
     /** REQUEST_INSTALL_PACKAGES is a manifest-declared permission, but installing from a
      * specific source still needs this per-app runtime toggle (same shape as the
@@ -38,104 +34,93 @@ object ApkInstaller {
         Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${context.packageName}"))
 
     /**
-     * Downloads via DownloadManager (handles the actual transfer natively),
-     * polling it for progress since DownloadManager's own notification is
-     * easy to miss and gives no in-app feedback. [onStatus] is called on the
-     * main thread with a short human-readable line for each state change;
-     * on success this also launches the installer. Caller should have
-     * already checked [hasInstallPermission].
+     * Downloads the APK IN-APP (not via the system DownloadManager) and hands
+     * it to the installer. This is deliberate, and it fixes a real bug: while
+     * the tier (c) reachability VpnService is up (the status-bar "key"/VPN
+     * icon), DownloadManager - a separate system process - has its traffic
+     * captured by the VPN tun, which routes only the /32 virtual address, so
+     * the download silently stalls. The app's own process is excluded from
+     * the VPN (`addDisallowedApplication(packageName)` in
+     * VpnReachabilityService), so an in-app HttpURLConnection bypasses the
+     * tun and downloads fine WITHOUT tearing the VPN or the stream down. (The
+     * earlier "stop the stream to update" fix targeted the wrong cause -
+     * MediaProjection - and failed because the real blocker was the VPN.)
+     *
+     * [onStatus] is called on the main thread with a short human-readable
+     * line per state change; on success this launches the installer. Caller
+     * should have already checked [hasInstallPermission].
      */
     fun downloadAndInstall(context: Context, url: String, onStatus: (String) -> Unit = {}) {
         val appContext = context.applicationContext
         val destFile = File(appContext.getExternalFilesDir(null), FILE_NAME)
-        destFile.delete() // drop any stale previous download
-
-        val request = DownloadManager.Request(Uri.parse(url))
-            .setTitle("vehplayer update")
-            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-            .setDestinationInExternalFilesDir(appContext, null, FILE_NAME)
-
-        val manager = appContext.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-        val downloadId = manager.enqueue(request)
         val handler = Handler(Looper.getMainLooper())
+        fun post(msg: String) = handler.post { onStatus(msg) }
 
-        // Progress polling and the completion broadcast can both fire the
-        // final state; guard against reporting it (and launching the
-        // installer) twice.
-        var finished = false
+        Thread({
+            destFile.delete() // drop any stale previous download
+            var conn: HttpURLConnection? = null
+            try {
+                // Follow cross-scheme redirects manually: GitHub's release
+                // asset URL 302s to a signed objects.githubusercontent.com
+                // URL, and HttpURLConnection won't auto-follow https->https
+                // across hosts if the scheme/host policy trips - do it by hand
+                // so a redirect never looks like a failure.
+                var current = url
+                var redirects = 0
+                while (true) {
+                    conn = (URL(current).openConnection() as HttpURLConnection).apply {
+                        instanceFollowRedirects = false
+                        connectTimeout = 15000
+                        readTimeout = 30000
+                        requestMethod = "GET"
+                    }
+                    val code = conn!!.responseCode
+                    if (code in 300..399 && redirects < 5) {
+                        val loc = conn!!.getHeaderField("Location") ?: break
+                        conn!!.disconnect()
+                        current = loc
+                        redirects++
+                        continue
+                    }
+                    if (code != HttpURLConnection.HTTP_OK) {
+                        Log.w(TAG, "update download HTTP $code")
+                        post("Download failed (HTTP $code). Try again.")
+                        return@Thread
+                    }
+                    break
+                }
 
-        fun finish(success: Boolean, message: String) {
-            if (finished) return
-            finished = true
-            onStatus(message)
-            if (success) promptInstall(appContext, destFile, onStatus)
-        }
-
-        val poll = object : Runnable {
-            override fun run() {
-                if (finished) return
-                val info = queryStatus(manager, downloadId)
-                when (info?.status) {
-                    DownloadManager.STATUS_RUNNING -> {
-                        onStatus(
-                            if (info.totalBytes > 0) {
-                                "Downloading update... ${(info.bytesSoFar * 100 / info.totalBytes)}%"
+                val total = conn!!.contentLengthLong
+                conn!!.inputStream.use { input ->
+                    destFile.outputStream().use { output ->
+                        val buf = ByteArray(64 * 1024)
+                        var read = 0L
+                        var lastPct = -1
+                        while (true) {
+                            val n = input.read(buf)
+                            if (n < 0) break
+                            output.write(buf, 0, n)
+                            read += n
+                            if (total > 0) {
+                                val pct = (read * 100 / total).toInt()
+                                if (pct != lastPct) { lastPct = pct; post("Downloading update... $pct%") }
                             } else {
-                                "Downloading update..."
-                            },
-                        )
-                        handler.postDelayed(this, POLL_INTERVAL_MS)
+                                post("Downloading update... ${read / 1024}KB")
+                            }
+                        }
                     }
-                    DownloadManager.STATUS_PENDING -> {
-                        onStatus("Download queued...")
-                        handler.postDelayed(this, POLL_INTERVAL_MS)
-                    }
-                    DownloadManager.STATUS_SUCCESSFUL -> finish(true, "Download complete, opening installer...")
-                    DownloadManager.STATUS_FAILED -> {
-                        Log.w(TAG, "update download failed, reason=${info.reason}")
-                        finish(false, "Download failed. Check your connection and try again.")
-                    }
-                    else -> handler.postDelayed(this, POLL_INTERVAL_MS)
                 }
-            }
-        }
-        handler.post(poll)
-
-        val receiver = object : BroadcastReceiver() {
-            override fun onReceive(ctx: Context, intent: Intent) {
-                if (intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1) != downloadId) return
-                appContext.unregisterReceiver(this)
-                val info = queryStatus(manager, downloadId)
-                if (info?.status == DownloadManager.STATUS_SUCCESSFUL) {
-                    finish(true, "Download complete, opening installer...")
-                } else {
-                    Log.w(TAG, "update download finished but not successful, reason=${info?.reason}")
-                    finish(false, "Download failed. Check your connection and try again.")
+                handler.post {
+                    onStatus("Download complete, opening installer...")
+                    promptInstall(appContext, destFile, onStatus)
                 }
+            } catch (e: Exception) {
+                Log.w(TAG, "in-app update download failed", e)
+                post("Download failed: ${e.message ?: "unknown"}. Try again.")
+            } finally {
+                conn?.disconnect()
             }
-        }
-        val filter = IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            appContext.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
-        } else {
-            @Suppress("UnspecifiedRegisterReceiverFlag")
-            appContext.registerReceiver(receiver, filter)
-        }
-    }
-
-    private data class DownloadInfo(val status: Int, val bytesSoFar: Long, val totalBytes: Long, val reason: Int)
-
-    private fun queryStatus(manager: DownloadManager, downloadId: Long): DownloadInfo? {
-        val cursor: Cursor = manager.query(DownloadManager.Query().setFilterById(downloadId))
-        cursor.use {
-            if (!it.moveToFirst()) return null
-            return DownloadInfo(
-                status = it.getInt(it.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS)),
-                bytesSoFar = it.getLong(it.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR)),
-                totalBytes = it.getLong(it.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES)),
-                reason = it.getInt(it.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON)),
-            )
-        }
+        }, "apk-download").start()
     }
 
     private fun promptInstall(context: Context, apkFile: File, onStatus: (String) -> Unit) {
