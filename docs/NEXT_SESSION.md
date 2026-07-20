@@ -191,6 +191,40 @@ row-C result. Note: `video-test.html` row B (native HLS) will read SKIP in
 the car for the same Chromium-140 reason, which is a correct, expected
 result, not a bug.
 
+**Phone-side DOM evidence captured (Loggy DevTools export, tiktok.com/
+foryou, founder's phone via Kiwi browser, Android 16, 2026-07-20)**. This
+is real captured data, not recall, but it is from the *phone* browser, not
+the Tesla, and not in Drive, so read the caveat before treating it as
+settling §2.
+- MEASURED (phone, not car): TikTok's web player is a real `<video>`
+  element, proven two independent ways. (1) Seven `NotAllowedError: The
+  play method is not allowed by the user agent...` warnings from its
+  `[controller]` are `HTMLMediaElement.play()` hitting the autoplay policy,
+  an API only a `<video>`/`<audio>` element has, so there is a real
+  `<video>` element in the DOM. (2) The media fetch is
+  `...&mime_type=video_mp4` returning `Content-Type: video/mp4` (to
+  `v16-webapp-prime.tiktok.com`), and there is **no `.m3u8` / HLS manifest
+  anywhere in the 64 captured requests**. So: MP4 fed into a `<video>`
+  element, no canvas, no WebCodecs, no HLS. This matches the session-10
+  research read and kills the "maybe TikTok secretly uses canvas like we
+  do" possibility.
+- Also MEASURED (telemetry field): TikTok reports `"hevcSupported":1`, i.e.
+  it negotiates HEVC/H.265, which ties to the `ARCHITECTURE.md` §2
+  H.265-gap note (we ship H.264 only).
+- **Caveat, why this does not yet flip §2**: the suppression claim is
+  specifically about the *Tesla in-car browser while the car is in Drive*.
+  That behavior, if it exists, is gated on the car's gear state, which a
+  phone cannot reproduce. So this capture confirms the "TikTok web is a
+  plain `<video>`" half (which does deepen the doubt about why such a
+  `<video>` would ever be suppressed), but the decisive parked-vs-Drive
+  `<video>` comparison still needs `video-test.html` row A/C in the actual
+  Tesla. "Same principle on the phone" holds for the DOM/player mechanism
+  (Chromium renders `<video>` the same way everywhere), not for the
+  Drive-gated suppression, which is the whole open question.
+- Minor: the capture's analytics UA self-reports Firefox 144 / Gecko, which
+  is almost certainly a Kiwi UA override; the engine is still Chromium and
+  the `<video>`/`play()` conclusion is engine-agnostic regardless.
+
 ## Session 8: WebRTC probe built + widget slides rework (real user feedback round)
 
 Two tracks: the WebRTC direction from session 7's wrap-up got its full
