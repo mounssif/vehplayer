@@ -73,6 +73,7 @@ const log = (m) => {
 };
 
 const TESTS = [
+  ['ipv6cap',  'Does THIS browser do IPv6? (reached veh.modev.be over v4 or v6)'],
   ['api',      'WebRTC API present (RTCPeerConnection + DataChannel)'],
   ['ice',      'ICE candidate gathering (no servers) + mDNS obfuscation check'],
   ['loopback', 'In-page loopback: data channel round trip'],
@@ -156,6 +157,28 @@ phoneIpInput.value = localStorage.getItem('probePhoneIp') || '';
   if (qpIp) phoneIpInput.value = qpIp;
   if (qpPort) document.getElementById('httpPort').value = qpPort;
   if (qpIp) window.addEventListener('load', () => runAll());
+}
+
+// --- IPv6 capability of THIS browser, settled without touching the phone ---
+// Cloudflare's /cdn-cgi/trace echoes the client IP it saw. If the car reached
+// veh.modev.be over IPv6, the ip= line is a v6 address -> the car's stack does
+// IPv6 and tier (a) is alive. If it is always v4, the car is effectively
+// IPv4-only for this path (matches the "Tesla is IPv4-only" claim) and a
+// local IPv6 address won't be reachable no matter what the phone exposes.
+function testIpv6Cap() {
+  return fetch('/cdn-cgi/trace', { cache: 'no-store' })
+    .then(r => r.text())
+    .then(t => {
+      const ip = (t.match(/^ip=(.+)$/m) || [])[1] || '?';
+      const isV6 = ip.includes(':');
+      setResult('ipv6cap', isV6 ? 'PASS' : 'WARN',
+        isV6
+          ? `reached this server over IPv6 (client ${ip}) - the browser DOES IPv6, tier (a) is viable`
+          : `reached this server over IPv4 (client ${ip}) - browser preferred/only IPv4 here. ` +
+            'Not proof IPv6 is impossible, but if it never shows v6, a local IPv6 target is likely unreachable.');
+    })
+    .catch(e => setResult('ipv6cap', 'WARN', 'could not read /cdn-cgi/trace: ' + e +
+      ' (only works when this page is served from veh.modev.be)'));
 }
 
 // --- test 1: API presence ---
@@ -352,6 +375,7 @@ async function runAll() {
   document.getElementById('log').textContent = '';
   const ip = phoneIpInput.value.trim();
   if (ip) localStorage.setItem('probePhoneIp', ip);
+  await testIpv6Cap();
   if (!testApi()) {
     for (const id of ['ice','loopback','stunPub','stunPhone','fetch','ws'])
       setResult(id, 'SKIP', 'no WebRTC API');

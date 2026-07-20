@@ -219,6 +219,26 @@
                     android:layout_height="200dp"
                     android:contentDescription="Connection probe QR code" />
 
+                <!-- Explicit tap-to-copy button: long-press on the overlay was
+                     swallowed by the ScrollView, so give a real target. Its own
+                     click listener consumes the tap, so it doesn't dismiss the
+                     card the way the background does. -->
+                <TextView
+                    android:id="@+id/probeCopyBtn"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:paddingHorizontal="20dp"
+                    android:paddingVertical="10dp"
+                    android:background="#14120F"
+                    android:fontFamily="@font/space_grotesk_bold"
+                    android:textColor="#F5F0E6"
+                    android:textSize="14sp"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:visibility="gone"
+                    android:text="Copy URL" />
+
                 <TextView
                     android:id="@+id/probeQrCaption"
                     android:layout_width="300dp"

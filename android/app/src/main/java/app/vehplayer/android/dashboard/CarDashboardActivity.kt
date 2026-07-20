@@ -414,15 +414,19 @@ class CarDashboardActivity : AppCompatActivity() {
         }
         val scanUrl = bestV6 ?: probeUrl
 
-        // Long-press anywhere on the card copies the scan URL to the clipboard
-        // (founder ask: a whole IPv6 is miserable to retype). Toast confirms.
-        scanUrl?.let { copyable ->
-            overlay.setOnLongClickListener {
+        // Explicit "Copy URL" button (founder ask: a whole IPv6 is miserable
+        // to retype; long-press was swallowed by the ScrollView). Its own
+        // click listener consumes the tap so it doesn't dismiss the card.
+        val copyBtn = findViewById<TextView>(R.id.probeCopyBtn)
+        if (scanUrl != null) {
+            copyBtn.visibility = View.VISIBLE
+            copyBtn.setOnClickListener {
                 val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                cm.setPrimaryClip(ClipData.newPlainText("vehplayer URL", copyable))
-                Toast.makeText(this, "Copied: $copyable", Toast.LENGTH_LONG).show()
-                true
+                cm.setPrimaryClip(ClipData.newPlainText("vehplayer URL", scanUrl))
+                Toast.makeText(this, "Copied: $scanUrl", Toast.LENGTH_LONG).show()
             }
+        } else {
+            copyBtn.visibility = View.GONE
         }
 
         if (scanUrl != null) {
@@ -463,7 +467,7 @@ class CarDashboardActivity : AppCompatActivity() {
             }
             if (scanUrl != null) {
                 append("\n\nQR above = ").append(if (bestV6 != null) "the IPv6 test URL" else "this URL")
-                    .append(". Long-press this card to copy it.")
+                    .append(". Use the Copy URL button to grab it.")
             }
         }
         overlay.visibility = View.VISIBLE
