@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>vehplayer video-in-Drive probe</title>
+<!--
+  Settles ARCHITECTURE.md §2's REPORTED claim ("Tesla's in-car browser
+  suppresses <video> element playback while the car is in Drive") against a
+  real MEASURED counter-observation: tiktok.com's web player (a plain
+  <video> element) played smoothly in this exact browser at highway speed
+  in Drive (docs/NEXT_SESSION.md, session 10 note - add that reference once
+  this is written up). If §2's claim doesn't hold, mseFallback.ts and a
+  MediaMTX/HLS-based pipeline become viable primaries, not deprioritized
+  fallbacks.
+
+  Self-contained static file, deployed via the normal webclient deploy
+  (vite copies public/ into dist/ verbatim, same as probe-webrtc.html and
+  diag.html). No dependency on the phone's HTTP server or hotspot IP at all
+  - this only needs the public CDN (veh.modev.be), which isolates exactly
+  one variable: does <video> render while the car is in Drive, nothing else.
+
+  Three independent playback paths, since a plain suppression rule could in
+  principle target one and not the others:
+    A) progressive MP4  - plain <video src="...mp4">, zero JS involved.
+    B) native HLS       - video.canPlayType('application/vnd.apple.mpegurl').
+                           Chromium has no native HLS support, so this row is
+                           expected to read SKIP in the car - that's a real,
+                           informative result, not a bug in the page.
+    C) HLS via hls.js    - MediaSource Extensions feeding the same <video>
+                           element. This is the one that matters most: it's
+                           the exact mechanism mseFallback.ts and any future
+                           MediaMTX-repackaged HLS pipeline would use.
+
+  Read every row out loud / photograph the screen. Record gear (P/D) and
+  speed at the moment each row is judged - suppression, if it exists, may be
+  gear-gated rather than global. Tap PASS/STALL/BLACK after watching each
+  ~15s, the on-page log timestamps it so you don't have to remember order
+  later. video.getVideoPlaybackQuality() dropped-frame counts are read
+  automatically where the browser supports it, so "smooth" doesn't have to
+  stay a subjective call.
+-->
+<style>
+  :root { --bg:#14120F; --card:#211E19; --text:#F5F0E6; --muted:#948E82;
+          --ok:#5dbb63; --fail:#e0645c; --warn:#F2A93B; }
+  * { box-sizing:border-box; }
+  body { font-family:system-ui,sans-serif; background:var(--bg); color:var(--text);
+         margin:0; padding:20px; }
+  h1 { font-size:26px; margin:0 0 4px; }
+  .sub { color:var(--muted); margin:0 0 18px; font-size:15px; }
+  .note { background:var(--card); border-radius:14px; padding:14px 18px; margin-bottom:16px;
+          font-size:16px; line-height:1.5; }
+  .note b { color:var(--warn); }
+  .row { background:var(--card); border-radius:14px; padding:14px 18px; margin-bottom:12px; }
+  .rowhead { display:flex; align-items:center; gap:16px; flex-wrap:wrap; }
+  .status { font-size:26px; font-weight:800; min-width:120px; text-align:center;
+            border-radius:10px; padding:8px 4px; background:#000; }
+  .PENDING { color:var(--muted); } .LOADING { color:var(--warn); }
+  .PLAYING { color:var(--ok); } .STALLED, .ERROR { color:var(--fail); } .SKIP { color:var(--warn); }
+  .label { font-size:19px; font-weight:600; }
+  .detail { color:var(--muted); font-size:14px; word-break:break-all; margin-top:2px; }
+  video { width:100%; max-width:560px; background:#000; border-radius:10px; margin-top:10px;
+          display:block; }
+  .btnrow { margin-top:10px; display:flex; gap:10px; flex-wrap:wrap; }
+  button { font-size:20px; padding:10px 20px; border-radius:10px; border:0;
+           background:var(--warn); color:#14120F; font-weight:700; }
+  button.ok { background:var(--ok); color:#0c1f0d; }
+  button.bad { background:var(--fail); color:#2a0d0b; }
+  button.muted { background:#3a352c; color:var(--text); }
+  #log { font:12px/1.5 monospace; color:var(--muted); background:#000; border-radius:10px;
+         padding:10px; margin-top:16px; max-height:220px; overflow:auto; white-space:pre-wrap; }
+  .qual { font-size:13px; color:var(--muted); margin-top:6px; }
+</style>
+</head>
+<body>
+<h1>vehplayer video-in-Drive probe</h1>
+<p class="sub" id="env"></p>
+
+<div class="note">
+  <b>Protocol:</b> for each row below, tap play, watch ~15s, note the gear and
+  approximate speed at that moment out loud (for the recording / passenger to
+  log), then tap PASS / STALLED-OR-BLACK below that row. Do this once parked
+  and once at real highway speed in Drive - the comparison between the two is
+  the actual result. Row C (hls.js) is the one that matters most for the
+  product decision.
+</div>
+
+<div class="row" id="row-a">
+  <div class="rowhead">
+    <div class="status PENDING" id="status-a">PENDING</div>
+    <div>
+      <div class="label">A. Progressive MP4 (plain &lt;video&gt;, zero JS)</div>
+      <div class="detail">Public Google sample clip, no adaptive logic at all - the simplest possible case.</div>
+    </div>
+  </div>
+  <video id="video-a" playsinline controls muted
+    src="https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"></video>
+  <div class="qual" id="qual-a"></div>
+  <div class="btnrow">
+    <button class="ok" onclick="mark('a','PASS - smooth')">PASS - smooth</button>
+    <button class="bad" onclick="mark('a','STALLED/BLACK')">STALLED / BLACK</button>
+    <button class="muted" onclick="mark('a','choppy but visible')">choppy but visible</button>
+  </div>
+</div>
+
+<div class="row" id="row-b">
+  <div class="rowhead">
+    <div class="status PENDING" id="status-b">PENDING</div>
+    <div>
+      <div class="label">B. Native HLS (video.canPlayType, no JS library)</div>
+      <div class="detail">Apple's public bipbop test stream. Chromium (this car's browser) has no
+        native HLS support, so SKIP here is expected and correct, not a bug.</div>
+    </div>
+  </div>
+  <video id="video-b" playsinline controls muted></video>
+  <div class="qual" id="qual-b"></div>
+  <div class="btnrow">
+    <button class="ok" onclick="mark('b','PASS - smooth')">PASS - smooth</button>
+    <button class="bad" onclick="mark('b','STALLED/BLACK')">STALLED / BLACK</button>
+    <button class="muted" onclick="mark('b','choppy but visible')">choppy but visible</button>
+  </div>
+</div>
+
+<div class="row" id="row-c">
+  <div class="rowhead">
+    <div class="status PENDING" id="status-c">PENDING</div>
+    <div>
+      <div class="label">C. HLS via hls.js (MSE) - the one that decides mseFallback.ts</div>
+      <div class="detail">Same test stream, fed through MediaSource Extensions into the same
+        &lt;video&gt; element - exactly the mechanism a future MediaMTX-repackaged HLS pipeline
+        would use.</div>
+    </div>
+  </div>
+  <video id="video-c" playsinline controls muted></video>
+  <div class="qual" id="qual-c"></div>
+  <div class="btnrow">
+    <button class="ok" onclick="mark('c','PASS - smooth')">PASS - smooth</button>
+    <button class="bad" onclick="mark('c','STALLED/BLACK')">STALLED / BLACK</button>
+    <button class="muted" onclick="mark('c','choppy but visible')">choppy but visible</button>
+  </div>
+</div>
+
+<div id="log"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
+<script>
+'use strict';
+const HLS_URL = 'https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_fmp4/master.m3u8';
+
+const log = (m) => {
+  console.log('[video-probe]', m);
+  const el = document.getElementById('log');
+  const t = new Date().toISOString().substr(11, 12);
+  el.textContent += `[${t}] ${m}\n`;
+  el.scrollTop = el.scrollHeight;
+};
+
+function setStatus(id, cls, text) {
+  const el = document.getElementById('status-' + id);
+  el.className = 'status ' + cls;
+  el.textContent = text;
+}
+
+function mark(id, verdict) {
+  const v = document.getElementById('video-' + id);
+  let q = '';
+  if (v.getVideoPlaybackQuality) {
+    const s = v.getVideoPlaybackQuality();
+    q = ` (dropped ${s.droppedVideoFrames}/${s.totalVideoFrames} frames)`;
+  }
+  log(`ROW ${id.toUpperCase()} manual verdict: ${verdict}${q} - currentTime=${v.currentTime.toFixed(1)}s`);
+}
+
+document.getElementById('env').textContent =
+  location.href + ' - ' + navigator.userAgent;
+
+// Row A: plain progressive MP4, wire basic event logging only.
+(function () {
+  const v = document.getElementById('video-a');
+  v.addEventListener('loadstart', () => setStatus('a', 'LOADING', 'LOADING'));
+  v.addEventListener('playing', () => setStatus('a', 'PLAYING', 'PLAYING'));
+  v.addEventListener('waiting', () => setStatus('a', 'STALLED', 'STALLED'));
+  v.addEventListener('error', () => setStatus('a', 'ERROR', 'ERROR'));
+  setInterval(() => {
+    if (v.getVideoPlaybackQuality && !v.paused) {
+      const s = v.getVideoPlaybackQuality();
+      document.getElementById('qual-a').textContent =
+        `dropped ${s.droppedVideoFrames}/${s.totalVideoFrames} frames, t=${v.currentTime.toFixed(1)}s`;
+    }
+  }, 1000);
+})();
+
+// Row B: native HLS only (canPlayType). No hls.js involvement at all.
+(function () {
+  const v = document.getElementById('video-b');
+  if (v.canPlayType('application/vnd.apple.mpegurl')) {
+    v.src = HLS_URL;
+    v.addEventListener('loadstart', () => setStatus('b', 'LOADING', 'LOADING'));
+    v.addEventListener('playing', () => setStatus('b', 'PLAYING', 'PLAYING'));
+    v.addEventListener('waiting', () => setStatus('b', 'STALLED', 'STALLED'));
+    v.addEventListener('error', () => setStatus('b', 'ERROR', 'ERROR'));
+  } else {
+    setStatus('b', 'SKIP', 'SKIP');
+    document.getElementById('qual-b').textContent =
+      'no native HLS support reported (expected in Chromium)';
+    log('ROW B: canPlayType reports no native HLS support - expected on Chromium, not a page bug.');
+  }
+})();
+
+// Row C: hls.js over MSE - the one that actually matters for mseFallback.ts.
+(function () {
+  const v = document.getElementById('video-c');
+  if (window.Hls && Hls.isSupported()) {
+    const hls = new Hls();
+    hls.loadSource(HLS_URL);
+    hls.attachMedia(v);
+    hls.on(Hls.Events.MANIFEST_PARSED, () => {
+      log('ROW C: manifest parsed, attempting playback.');
+      v.play().catch((e) => log('ROW C: autoplay blocked - ' + e.message + ' (tap play manually).'));
+    });
+    hls.on(Hls.Events.ERROR, (evt, data) => {
+      log('ROW C hls.js error: ' + data.type + ' / ' + data.details + (data.fatal ? ' [FATAL]' : ''));
+      if (data.fatal) setStatus('c', 'ERROR', 'ERROR');
+    });
+    v.addEventListener('loadstart', () => setStatus('c', 'LOADING', 'LOADING'));
+    v.addEventListener('playing', () => setStatus('c', 'PLAYING', 'PLAYING'));
+    v.addEventListener('waiting', () => setStatus('c', 'STALLED', 'STALLED'));
+  } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
+    v.src = HLS_URL;
+    log('ROW C: hls.js/MSE not supported, browser has native HLS - using that instead (still MSE-adjacent).');
+  } else {
+    setStatus('c', 'ERROR', 'ERROR');
+    log('ROW C: neither hls.js/MSE nor native HLS available - unexpected on Chromium 140, check console.');
+  }
+  setInterval(() => {
+    if (v.getVideoPlaybackQuality && !v.paused) {
+      const s = v.getVideoPlaybackQuality();
+      document.getElementById('qual-c').textContent =
+        `dropped ${s.droppedVideoFrames}/${s.totalVideoFrames} frames, t=${v.currentTime.toFixed(1)}s`;
+    }
+  }, 1000);
+})();
+
+log('Page loaded. Tap play on each row (autoplay is muted-only by policy), watch, tap a verdict button.');
+</script>
+</body>
+</html>

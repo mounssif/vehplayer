@@ -71,6 +71,14 @@ Trust boundary note: the hotspot may have other clients. The WS server requires 
   fallback" to "the only path that matters for a nav/dashboard product",
   since in-motion is the only state where a driving-focused product needs
   to actually work.
+  **CONTESTED, session 10 (docs/NEXT_SESSION.md)**: founder-reported
+  real-device counter-observation (tiktok.com and youtube.com both playing
+  smoothly, in the actual Tesla browser, in Drive, at highway speed) puts
+  this REPORTED claim in real doubt. Not yet promoted to MEASURED-FALSE -
+  `webclient/public/video-test.html` (built session 10, not yet run in the
+  car) is the structured probe that settles it with dropped-frame numbers
+  instead of recall. Do not build further on the assumption this
+  suppression is real until that probe has actually run in the car.
 - **`mseFallback.ts` deprioritized, not simply unfinished** (correction,
   `MARKET_AND_PRICING.md` §3 item 2): MSE renders through a real `<video>`
   element, so on any car where it would be *needed* (WebCodecs

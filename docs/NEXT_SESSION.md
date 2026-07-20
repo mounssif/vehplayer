@@ -66,6 +66,112 @@
 > WebRTC PASS, and exposed why THE test keeps failing: subnet mismatch
 > (car on 192.168.93.x, probe targeting 10.118.219.223). Fixes on all
 > three sides shipped - see the session 9 section.
+> Session 10 (chat sandbox, no Android SDK, no in-car access this
+> session): challenged ARCHITECTURE.md §2's REPORTED "Tesla suppresses
+> `<video>` in Drive" claim against founder-reported real-device
+> counter-evidence (tiktok.com and youtube.com both played smoothly, in
+> the actual Tesla browser, in Drive, at highway speed) and built
+> `webclient/public/video-test.html`, a three-row probe (progressive
+> MP4, native HLS, hls.js/MSE) to turn that into a structured MEASURED
+> result with dropped-frame counts instead of a subjective "it worked".
+> See the session 10 section for what's provisional vs settled, and why
+> this reopens `mseFallback.ts` / a MediaMTX-HLS pipeline as a candidate
+> primary instead of a deprioritized fallback.
+
+## Session 10: §2's Drive-suppression claim likely wrong, founder-reported, structured probe built to confirm
+
+Founder reported (chat session, not a fresh in-car test with photos this
+time) watching TikTok's web player (tiktok.com, not logged in) scroll
+smoothly through multiple videos while a passenger, car in Drive, highway
+speed (>100 km/u), in the actual Tesla browser from the WebRTC probe
+screenshots (Chromium 140). Same claimed, with more confidence ("weet
+het zeker"), for youtube.com. **Evidence tag: MEASURED but founder-recall,
+not session-log photos/video/frame-drop numbers** - real and worth acting
+on, but not yet held to the same photographic rigor as the session 7-9
+WebRTC findings, on purpose (see the caveat below).
+
+**Why this matters, concretely**: `ARCHITECTURE.md` §2 currently states,
+as REPORTED (a TeslaTap developer's forum description, not our own
+measurement), that Tesla's in-car Chromium suppresses `<video>` element
+playback in Drive, and promotes WebCodecs-to-canvas from "primary, with a
+fallback" to "the only path that matters for a driving product" on the
+strength of that single REPORTED claim. `mseFallback.ts`'s Annex-B-to-fMP4
+muxer was explicitly deprioritized on the same basis. If §2 is wrong, or
+narrower than stated (maybe it only ever applied to a specific old
+firmware, or a specific site's autoplay policy got misread as suppression,
+or it never applied to plain `<video>` at all), then:
+
+- `mseFallback.ts` stops being a scoped-TODO fallback and becomes a
+  legitimate candidate for the *primary* pipeline.
+- The MediaMTX/HLS direction the founder raised earlier this session (RTMP
+  ingest on the phone, HLS repackage, car just opens `<video src=
+  "...m3u8">`) becomes dramatically simpler than the current MediaCodec ->
+  WS -> WebCodecs -> canvas chain, at the cost of HLS's inherent multi-
+  second latency versus the ~100ms class WebCodecs/WebRTC path was
+  chasing. Realistic outcome: two tiers, not a replacement - HLS for
+  passenger/media content, keep the low-latency canvas path for anything
+  nav-adjacent where live feel matters.
+- It does **not** touch the RFC1918/IPv6 reachability problem (§7) at all
+  - that's an orthogonal layer (can the car reach the phone's address),
+  independent of what renders once a connection exists. Session 9's
+  conclusion there stands unchanged.
+
+**What was actually observed vs what "smooth" could be hiding**: TikTok's
+web player is a plain `<video>` element (confirmed by research this
+session, not assumed) - either a progressive MP4 `src` or MSE-fed
+segments, no canvas/WebCodecs involvement, no exotic tech. The founder's
+own read is that TikTok's occasional stutter is more likely its own
+infinite-scroll DOM churn (creating/destroying video elements, autoplay-
+on-scroll-into-view) than a Drive-suppression effect, since a single
+static stream should be more stable than that - plausible, but exactly
+the kind of inference session 4's "don't diagnose from a single screenshot
+when a fuller repro is available" lesson says to verify rather than trust.
+
+**Built this session**: `webclient/public/video-test.html`, same house
+style as `probe-webrtc.html` (huge photographable rows, self-contained
+static file, vite copies `public/` into `dist/` verbatim, deploys to
+`veh.modev.be` on the normal push-to-main flow, no phone/hotspot
+dependency at all since it only needs the public CDN - isolates exactly
+one variable). Three independent rows so a suppression rule that only
+targets one playback path doesn't get missed:
+
+- **A. Progressive MP4** - plain `<video src="...mp4">`, zero JS, the
+  simplest possible case, closest to "is `<video>` itself suppressed at
+  all."
+- **B. Native HLS** (`canPlayType('application/vnd.apple.mpegurl')`) -
+  expected to read SKIP on Chromium (no native HLS support there), which
+  is a correct, informative result, not a page bug.
+- **C. HLS via hls.js (MediaSource Extensions)** - the row that actually
+  decides `mseFallback.ts` and any future MediaMTX pipeline, since MSE-fed
+  `<video>` is exactly that mechanism.
+
+Each row logs `video.getVideoPlaybackQuality()` (dropped/total frame
+counts) automatically where supported, so the next in-car run produces a
+number instead of a subjective "looked smooth" - closing the same gap
+that made session 7's ping-vs-BPF false-positive lesson worth learning
+once already (don't trust an easy signal when a harder, decisive one is
+available). Manual PASS / STALLED-OR-BLACK / choppy-but-visible buttons
+under each row timestamp a verdict into an on-page log for photographing.
+
+**NOT DONE - the actual next step**: nobody has run `video-test.html` in
+the car yet. Founder: `git push` the file into the real repo's
+`webclient/public/`, let Workers Builds deploy it (same flow as
+`probe-webrtc.html`), then in the car open `https://veh.modev.be/video-
+test`, run all three rows once parked and once at real highway speed in
+Drive, say gear + speed out loud per row for the recording, photograph the
+end state. Row C parked-vs-Drive is the one comparison that actually
+answers the question. If it holds up: promote §2's tag from REPORTED to
+MEASURED (with the real numbers), and open the "MediaMTX-HLS as a second
+tier" design question as its own next-session item rather than deciding
+it here from founder recall alone.
+
+**Explicitly not changed this session**: `ARCHITECTURE.md` §2's actual
+prose and evidence tag - deliberately left as REPORTED pending the
+structured photographic run above, consistent with the project's own bar
+(`GROWTH_SAAS.md`/`CLAUDE.md` evidence-tag rule) rather than flipping a
+foundational architecture doc on a chat-recalled description alone, even
+a confident one ("bijna 90%", founder's own words this session). Worth
+revisiting the moment `video-test.html` actually runs in the car.
 
 ## Session 8: WebRTC probe built + widget slides rework (real user feedback round)
 
