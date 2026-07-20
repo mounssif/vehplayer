@@ -199,6 +199,10 @@ class MainActivity : AppCompatActivity() {
 
         setStatus(buildInitialStatus())
         refreshSetupButtonEmphasis()
+        findViewById<TextView>(R.id.localHotspotInfo).apply {
+            visibility = View.VISIBLE
+            text = app.vehplayer.android.net.Ipv6Report.summary()
+        }
     }
 
     /**

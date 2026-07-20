@@ -418,6 +418,9 @@ class CarDashboardActivity : AppCompatActivity() {
                     .append("x (reopen after a car attempt; nonzero = packets arrive)")
                 svc.lastDiagReport?.let { append("\n\nlast in-car diag: ").append(summarizeDiag(it)) }
             }
+            // IPv6 viability (tier a plan A): does the SIM/hotspot expose a
+            // routable IPv6 that would dodge Tesla's RFC1918 block?
+            append("\n\n").append(app.vehplayer.android.net.Ipv6Report.summary())
             if (probeUrl != null) {
                 append("\n\nIn the car type this URL (or scan it with a phone/laptop on the hotspot): ")
                 append(probeUrl)

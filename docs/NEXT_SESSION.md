@@ -639,6 +639,37 @@ would in the car's Chromium. It is caught (`.catch`) and audio is Route B
 transpiling the worklet loaded via `new URL('./x.ts', import.meta.url)` +
 addModule; write it as plain .js or force transpile).
 
+### LocalOnlyHotspot tested in the car - doubly dead (build-25)
+
+The founder got LOH to start (second try, after the SIM hotspot was
+torn down): SSID AndroidShare_8121. The car **refused to join it**:
+"Geen verbinding met internet. Controleer de firewall en
+internetverbinding." LocalOnlyHotspot has NO internet by design, and
+**Tesla rejects a Wi-Fi network that has no internet** (connectivity
+check fails). So LOH is dead on two counts for the car: the no-internet
+rejection, and its 192.168.x address is still RFC1918 (which Tesla blocks
+even if it did join). Off the table, confirmed by test not assumption.
+
+Also noted from the photos: the phone is **dual-SIM (Proximus + Orange,
+"Orange B")**. The IPv6/APN question must target whichever SIM feeds the
+hotspot's data.
+
+### IPv6 viability reporter added (build-26)
+
+Tier (a) is now the only live plan, gated entirely on "does the SIM/APN
+hand out IPv6, and does the hotspot expose it." `net/Ipv6Report.kt`
+enumerates global-unicast (2000::/3) IPv6 per interface, tags cellular
+(rmnet/ccmni) vs hotspot (ap/swlan/wlan), and both MainActivity and the
+connect-info overlay show a one-line summary:
+- "IPv6: none (SIM/APN likely IPv4-only -> tier (a) not available)", or
+- "IPv6 global: <iface> <addr> ... [SIM has IPv6] [hotspot exposes IPv6]".
+Verified rendering on the emulator (shows "none", as expected - no
+cellular IPv6 there). **This is the founder's APN check made
+zero-effort: open the app on mobile data and read the line.** [SIM has
+IPv6] present -> tier (a) is worth building; absent -> IPv6 is out and
+the direct-connection options are effectively exhausted (escalate to the
+WebRTC-signaling rendezvous / rethink).
+
 ### Next run protocol (either home hotspot or car, 2 minutes)
 
 1. Update app (banner), Start, read the dashboard line: `hotspot <ip>
