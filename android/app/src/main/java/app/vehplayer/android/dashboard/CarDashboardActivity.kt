@@ -421,6 +421,16 @@ class CarDashboardActivity : AppCompatActivity() {
             // IPv6 viability (tier a plan A): does the SIM/hotspot expose a
             // routable IPv6 that would dodge Tesla's RFC1918 block?
             append("\n\n").append(app.vehplayer.android.net.Ipv6Report.summary())
+            // Per-IPv6 diag URLs to try from a client on the hotspot: whichever
+            // loads is a phone address the car/laptop can actually reach over
+            // IPv6 (bracketed per URL syntax). This is the tier-(a) reachability
+            // test - GUA is outside Tesla's RFC1918 block.
+            val v6 = app.vehplayer.android.net.Ipv6Report.globalV6()
+            val v6Port = app.vehplayer.android.capture.CaptureService.instance?.httpServerPort
+            if (v6.isNotEmpty() && v6Port != null) {
+                append("\n\nIPv6 test URLs (open from a device on the hotspot; whichever loads = reachable):")
+                v6.forEach { append("\n  http://[").append(it.address).append("]:").append(v6Port).append("/diag") }
+            }
             if (probeUrl != null) {
                 append("\n\nIn the car type this URL (or scan it with a phone/laptop on the hotspot): ")
                 append(probeUrl)
