@@ -34,9 +34,9 @@ class HttpAssetServer(
     port: Int = 8080,
 ) : NanoHTTPD(port) {
 
-    companion object {
-        private const val CDN_BASE_URL = "https://veh.modev.be"
-    }
+    // The https CDN copy (veh.modev.be) is intentionally NOT used to serve the
+    // ws-dependent client anymore - see the /go handler. It stays the host for
+    // the probe/diag pages, which are reached directly by URL, not from here.
 
     /**
      * Zero-adb reachability counter, shown in the dashboard's connect-info
@@ -63,7 +63,17 @@ class HttpAssetServer(
             val token = PairingToken.generate()
             val host = session.headers["host"]?.substringBefore(':') ?: "localhost"
             val wsUrl = "ws://$host:$wsPort/"
-            val redirectTo = "$CDN_BASE_URL/index.html?token=$token&ws=${URLEncoder.encode(wsUrl, "UTF-8")}"
+            // Serve the client from the phone's OWN http origin, NOT the https
+            // CDN (session 9, MEASURED): a client loaded over https can never
+            // open ws:// to the phone - browsers reject it as insecure mixed
+            // content ("The operation is insecure" at wsClient.connect). The
+            // whole mirror data channel dies before it starts. Same-origin
+            // http keeps ws:// legal, and the bundle is already here in
+            // assets (this is also strictly more "data plane local"). The
+            // CDN copy stays reachable for the probe/diag pages, just not for
+            // the ws-dependent client.
+            val hostHeader = session.headers["host"] ?: "$host:$listeningPort"
+            val redirectTo = "http://$hostHeader/index.html?token=$token&ws=${URLEncoder.encode(wsUrl, "UTF-8")}"
             return newFixedLengthResponse(Response.Status.REDIRECT, "text/plain", "").apply {
                 addHeader("Location", redirectTo)
             }

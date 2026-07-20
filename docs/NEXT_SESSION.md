@@ -579,6 +579,66 @@ C. **LocalOnlyHotspot, car:** tap the firewall-bypass button, join the
 Read the counters / the /diag verdict / the connect-info summary after
 each - all three report without a photo.
 
+## Session 9 RESOLVED THE BLOCKER CLASS: Tesla's RFC1918 block is real and covers UDP too; the phone/hotspot is clean
+
+The A/B test ran (build-24, MEASURED, founder photos + console):
+
+- **A - laptop on the normal hotspot -> `http://10.118.219.223:8081/diag`:
+  FULL GO.** Every row PASS: self/TCP, /diag-config, /ping (52ms),
+  XHR, **WebSocket connected (42ms)**, **UDP-to-phone STUN srflx (22ms) -
+  "direct UDP car->phone WORKS"**, WebRTC loopback. Verdict "GO: TCP +
+  HTTP + UDP all reach the phone." So the **Samsung/Android tethering
+  firewall does NOT block client->AP-host** - a normal client on the
+  hotspot reaches the phone on TCP, HTTP, WS and UDP. The phone-firewall
+  hypothesis is DEAD, and the earlier "home test failed" was the
+  mixed-content https cloud probe being misread, not a real block.
+- **B - the same URL in the car: FAIL** (prior runs: /go TCP refused with
+  counter 0; STUN-to-phone no srflx). A laptop reaches everything the car
+  cannot.
+
+**Conclusion, MEASURED and now settled:** the block is **Tesla-specific
+and it is the RFC1918 filter, covering BOTH TCP and UDP.** The
+previously "publicly untested" question - does Tesla's private-range
+block also cover UDP/ICE - is answered: **YES.** Laptop UDP-to-phone
+passed; car UDP-to-phone failed on the identical address. So ICE host
+candidates on an RFC1918 address are dead in the car, exactly as HTTP was.
+
+**Consequences:**
+- **LocalOnlyHotspot (build-24) is now moot for the car**: its address is
+  still 192.168.x (RFC1918), which Tesla blocks regardless of code path.
+  It only ever helped the phone-firewall hypothesis, now disproven. (The
+  founder didn't spot the button - no need, it's off the critical path.)
+- **Plan A is tier (a): IPv6 GUA.** A public-range IPv6 address on the
+  phone is NOT in the RFC1918 block, and the laptop test proves that once
+  the car can *reach* the phone, the entire local transport (TCP/HTTP/WS/
+  UDP/WebRTC) works. The gate is whether the SIM/APN hands out IPv6 -
+  **the founder APN check is now THE critical-path question**, not a side
+  note. If IPv6 is available: assign the phone's AP a GUA, advertise it in
+  ICE + as the /go host, done. If not: the CGNAT (tier c) path is dead
+  (Android ingress-discard) and the options narrow hard.
+
+### Client-over-https ws:// bug fixed (build-25)
+
+The founder also hit, loading the client from veh.modev.be (https):
+`DOMException: The operation is insecure` at wsClient.connect. Root cause:
+a client served over **https** can never open **ws://** to the phone
+(browsers reject it as insecure). `/go` used to redirect to the https CDN
+copy, so the mirror data channel could never connect from there. **Fixed:
+`/go` now redirects to the phone's OWN http origin
+(`http://<host>/index.html?...`), serving the bundled client same-origin
+over http so ws:// is legal.** MEASURED on the emulator: /go -> local
+http index, index + hashed JS asset both 200, ws param
+`ws://<host>:8787`. This is also strictly more "data plane local". The
+CDN stays the host for the probe/diag pages only.
+
+**Still open, separate real bug (not yet fixed):** the audio AudioWorklet
+is loaded as **untranspiled TypeScript** (`private ring: Float32Array` ->
+"unexpected token: identifier"), so audio init throws in Firefox AND
+would in the car's Chromium. It is caught (`.catch`) and audio is Route B
+(Pro), so video mirror is unaffected, but it needs a real fix (vite isn't
+transpiling the worklet loaded via `new URL('./x.ts', import.meta.url)` +
+addModule; write it as plain .js or force transpile).
+
 ### Next run protocol (either home hotspot or car, 2 minutes)
 
 1. Update app (banner), Start, read the dashboard line: `hotspot <ip>
