@@ -24,6 +24,9 @@ export interface RendererStats {
 export interface VideoRendererOptions {
   canvas: HTMLCanvasElement;
   onStats?: (s: RendererStats) => void;
+  // Surfaced to the UI so a decode failure shows a reason instead of a silent
+  // black canvas (e.g. Firefox-on-Linux has VideoDecoder but no H.264 decode).
+  onError?: (message: string) => void;
 }
 
 /**
@@ -36,6 +39,7 @@ export class VideoRenderer {
   private readonly canvas: HTMLCanvasElement;
   private readonly ctx: CanvasRenderingContext2D;
   private readonly onStats?: (s: RendererStats) => void;
+  private readonly onError?: (message: string) => void;
 
   private decoder: VideoDecoder | null = null;
   private configured = false;
@@ -54,6 +58,7 @@ export class VideoRenderer {
   constructor(opts: VideoRendererOptions) {
     this.canvas = opts.canvas;
     this.onStats = opts.onStats;
+    this.onError = opts.onError;
     const ctx = this.canvas.getContext('2d');
     if (!ctx) throw new Error('2D canvas context unavailable');
     this.ctx = ctx;
@@ -67,13 +72,22 @@ export class VideoRenderer {
     } else {
       this.backend = 'none';
       console.error('[video] neither WebCodecs nor MSE available, this browser cannot render video at all');
+      this.onError?.('this browser has neither WebCodecs nor MSE - cannot render video');
     }
   }
 
   private initWebCodecs() {
     this.decoder = new VideoDecoder({
       output: (frame) => this.onWebCodecsFrame(frame),
-      error: (e) => console.error('[video] WebCodecs decoder error', e),
+      error: (e) => {
+        console.error('[video] WebCodecs decoder error', e);
+        // The classic Firefox-on-Linux case: VideoDecoder exists but H.264
+        // decode isn't supported, so every chunk errors and the canvas stays
+        // black. Say so instead of failing silently. Chromium (the car) does
+        // decode H.264 fine.
+        this.onError?.(`decoder error: ${(e as Error).message || e}. ` +
+          'If this is Firefox, H.264 WebCodecs decode is unsupported there - the car uses Chromium, which works.');
+      },
     });
   }
 

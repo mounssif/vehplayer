@@ -59,7 +59,15 @@ const wsClient = new WsClient({
   },
 });
 
+let connecting = false;
 connectBtn.addEventListener('click', async () => {
+  // Guard re-entry: a second Connect tap used to re-init everything on top of
+  // the already-open session and break it (founder-observed: "second connect
+  // no longer worked"). One connect per page load; reload /go to retry.
+  if (connecting) return;
+  connecting = true;
+  connectBtn.disabled = true;
+
   // User-gesture requirement for AudioContext lives here (ARCHITECTURE.md
   // §3 "audio starts only after a user gesture on the page, the connect tap
   // covers this").
@@ -69,6 +77,12 @@ connectBtn.addEventListener('click', async () => {
     canvas,
     onStats: (s) => {
       statsEl.textContent = `${s.backend} | decoded ${s.framesDecoded} | dropped ${s.framesDropped} | queue ${s.queueDepth}`;
+    },
+    onError: (message) => {
+      // Make a black canvas explain itself.
+      statusEl.textContent = 'video: ' + message;
+      connectScreen.style.display = 'block';
+      canvas.style.display = 'none';
     },
   });
 
