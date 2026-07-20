@@ -531,6 +531,54 @@ phone on the hotspot and open `http://<phone-ap-ip>:<port>/diag`.
   emulator this session (ping 200, config JSON, report POST -> ok,
   summary rendered).
 
+### Firewall-bypass path prepared (build-24): LocalOnlyHotspot toggle
+
+After a design discussion (founder proposed Bluetooth PAN, DNS tunneling,
+Wi-Fi Direct, LocalOnlyHotspot), the one idea that survives the "the
+Tesla is a locked Wi-Fi-only browser client" filter is **LocalOnlyHotspot**
+- it is a normal joinable WPA2 AP on a different code path from Settings
+tethering, so the carrier/OEM client-isolation firewall (our leading
+suspect) is often absent, and the car can join it like any hotspot. The
+others are dead at the car: BT-PAN (Tesla won't network its browser over
+Bluetooth), DNS-tunnel (no JS DNS API in the browser), Wi-Fi Direct (no
+P2P-join UI in the car). Honest caveat baked into the UI: LOH's IP is
+still RFC1918, so it only helps if the block is the phone firewall, NOT
+if it is Tesla's RFC1918 filter - the /diag test still decides which.
+
+Built as a reversible toggle so it can be tested in the same sitting:
+- `net/LocalOnlyHotspotController.kt`: wraps `startLocalOnlyHotspot`,
+  surfaces SSID/passphrase, resolves the AP's 192.168.x address, stop().
+- MainActivity "Firewall-bypass test" button: guards on the server being
+  up (Start streaming first) and location services on, requests
+  NEARBY_WIFI_DEVICES/FINE_LOCATION, then shows the SSID + password to
+  type into the car and the exact `http://<ap>:<port>/diag` URL. Tap
+  again to stop.
+- Manifest: added NEARBY_WIFI_DEVICES.
+- UI wiring MEASURED on the emulator (button, guard message); LOH itself
+  needs the real phone (emulator has no Wi-Fi radio for it).
+
+### One-sitting test plan for tomorrow (build-24)
+
+Everything below is now in one build so it can be run in a single go:
+
+A. **Normal hotspot, laptop /diag (isolates firewall vs Tesla):** phone
+   Start streaming; note IP+port on the connect-info chip; from a laptop
+   or 2nd phone ON the hotspot open `http://<ip>:<port>/diag`. Page loads
+   / counter moves = not the firewall. Won't load / counter stays 0 =
+   phone-side firewall.
+B. **Normal hotspot, car /diag:** in the car open the same
+   `http://<ip>:<port>/diag`. Compare with A: if a laptop can reach it
+   but the car cannot, the block is Tesla-specific (RFC1918).
+C. **LocalOnlyHotspot, car:** tap the firewall-bypass button, join the
+   car to the shown SSID/password, open the shown /diag URL. If it loads
+   here where the normal hotspot refused -> the SIM-hotspot firewall was
+   the blocker and LOH is the product direction. If it still refuses ->
+   the block follows RFC1918 regardless of code path -> IPv6 (tier a),
+   APN check gates it.
+
+Read the counters / the /diag verdict / the connect-info summary after
+each - all three report without a photo.
+
 ### Next run protocol (either home hotspot or car, 2 minutes)
 
 1. Update app (banner), Start, read the dashboard line: `hotspot <ip>

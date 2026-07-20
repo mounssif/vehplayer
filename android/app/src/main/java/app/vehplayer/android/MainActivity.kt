@@ -1,9 +1,14 @@
 package app.vehplayer.android
 
+import android.Manifest
 import android.app.Activity
 import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.location.LocationManager
 import android.media.projection.MediaProjectionManager
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.view.LayoutInflater
@@ -12,6 +17,8 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import app.vehplayer.android.capture.CaptureService
 import app.vehplayer.android.dashboard.CarDashboardActivity
 import app.vehplayer.android.input.VehplayerAccessibilityService
@@ -45,6 +52,7 @@ class MainActivity : AppCompatActivity() {
 
     private companion object {
         const val UPDATE_POLL_INTERVAL_MS = 5 * 60_000L
+        const val REQ_LOH_PERMS = 4201
     }
 
     private lateinit var statusView: TextView
@@ -59,6 +67,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var updateBannerContainer: LinearLayout
     private var updatePollJob: kotlinx.coroutines.Job? = null
     private var shownUpdateVersionCode: Int? = null
+
+    private val localHotspot by lazy { app.vehplayer.android.net.LocalOnlyHotspotController(applicationContext) }
 
     // Set by onStartClicked() when ReachabilityLadder finds a real global
     // IPv6 address (tier (a)) - awaitHttpServerAndShowUrl() must use THIS,
@@ -183,6 +193,7 @@ class MainActivity : AppCompatActivity() {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         }
         findViewById<View>(R.id.startBtn).setOnClickListener { onStartClicked() }
+        findViewById<View>(R.id.localHotspotBtn).setOnClickListener { onLocalHotspotClicked() }
         findViewById<TextView>(R.id.versionFooter).text =
             "vehplayer ${BuildConfig.VERSION_NAME} (build ${BuildConfig.VERSION_CODE})"
 
@@ -275,6 +286,84 @@ class MainActivity : AppCompatActivity() {
         }
         setStatus("Downloading update...")
         ApkInstaller.downloadAndInstall(this, update.downloadUrl) { message -> setStatus(message) }
+    }
+
+    /**
+     * Firewall-bypass diagnostic entry point. Brings up a LocalOnlyHotspot
+     * (net/LocalOnlyHotspotController) and shows the SSID/password to type
+     * into the car plus the exact http://<ap>:<port>/diag URL to open there.
+     * Needs the local HTTP server up (Start streaming first) so there is
+     * something for the car to reach, and location services on (a platform
+     * gate on LocalOnlyHotspot). Reversible: tapping again stops it.
+     */
+    private fun onLocalHotspotClicked() {
+        val info = findViewById<TextView>(R.id.localHotspotInfo)
+        if (localHotspot.isRunning) {
+            localHotspot.stop()
+            info.visibility = View.GONE
+            findViewById<TextView>(R.id.localHotspotBtn).text =
+                "Firewall-bypass test: start local-only hotspot"
+            return
+        }
+        val port = CaptureService.instance?.httpServerPort
+        if (port == null) {
+            info.visibility = View.VISIBLE
+            info.text = "Tap \"2. Start streaming\" first - the local server has to be up so " +
+                "the car has something to reach. Then tap this again."
+            return
+        }
+        val needed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
+            Manifest.permission.NEARBY_WIFI_DEVICES else Manifest.permission.ACCESS_FINE_LOCATION
+        if (ContextCompat.checkSelfPermission(this, needed) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this, arrayOf(needed, Manifest.permission.ACCESS_FINE_LOCATION), REQ_LOH_PERMS)
+            return
+        }
+        val lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        if (!lm.isLocationEnabled) {
+            info.visibility = View.VISIBLE
+            info.text = "Turn Location services ON (Android gates LocalOnlyHotspot on it), then tap again."
+            return
+        }
+        info.visibility = View.VISIBLE
+        info.text = "Starting local-only hotspot..."
+        localHotspot.start { loh, err ->
+            runOnUiThread {
+                if (err != null || loh == null) {
+                    info.text = "Local-only hotspot failed: ${err ?: "unknown"}"
+                    return@runOnUiThread
+                }
+                findViewById<TextView>(R.id.localHotspotBtn).text = "Stop local-only hotspot"
+                // The AP address only exists once the interface is up; give it a
+                // beat, then resolve it for the URL.
+                CoroutineScope(Dispatchers.Main).launch {
+                    delay(800)
+                    val ap = app.vehplayer.android.net.LocalOnlyHotspotController.apAddress()
+                    val urlLine = if (ap != null) "In the car open:  http://$ap:$port/diag"
+                        else "In the car open http://<the-192.168.x.1 shown when it joins>:$port/diag"
+                    info.text = "Local-only hotspot UP (bypasses the SIM-hotspot firewall).\n\n" +
+                        "1. In the car's Wi-Fi settings join:\n" +
+                        "   SSID: ${loh.ssid}\n" +
+                        "   Password: ${loh.passphrase}\n" +
+                        "2. $urlLine\n\n" +
+                        "If /diag loads here where the normal hotspot refused, the firewall was " +
+                        "the blocker. Tap again to stop."
+                }
+            }
+        }
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQ_LOH_PERMS) {
+            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                onLocalHotspotClicked()
+            } else {
+                findViewById<TextView>(R.id.localHotspotInfo).apply {
+                    visibility = View.VISIBLE
+                    text = "Wi-Fi/location permission is needed to start the local-only hotspot."
+                }
+            }
+        }
     }
 
     private fun onStartClicked() {

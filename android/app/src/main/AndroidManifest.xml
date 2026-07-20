@@ -22,6 +22,12 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    <!-- LocalOnlyHotspot firewall-bypass test (net/LocalOnlyHotspotController):
+         a normal joinable AP on a different code path from Settings tethering,
+         so the carrier/OEM client-isolation firewall is often absent. API 33+
+         wants NEARBY_WIFI_DEVICES; older releases gate LOH on FINE_LOCATION
+         (declared above). -->
+    <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES" />
 
     <!-- Blue-dot + route-from-here on the dashboard's embedded Navigate map
          (dashboard/NavigateMapFragment). Coarse is enough for the map's

@@ -95,6 +95,33 @@
             android:text="2. Start streaming" />
 
         <TextView
+            android:id="@+id/localHotspotBtn"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:background="@drawable/bg_keyboard_key"
+            android:paddingHorizontal="20dp"
+            android:paddingVertical="16dp"
+            android:gravity="center_vertical"
+            android:fontFamily="@font/space_grotesk_medium"
+            android:textColor="@color/dash_text_primary"
+            android:textSize="14sp"
+            android:clickable="true"
+            android:focusable="true"
+            android:text="Firewall-bypass test: start local-only hotspot" />
+
+        <TextView
+            android:id="@+id/localHotspotInfo"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:fontFamily="@font/space_grotesk_regular"
+            android:textColor="@color/dash_text_muted"
+            android:textSize="13sp"
+            android:lineSpacingExtra="3dp"
+            android:visibility="gone" />
+
+        <TextView
             android:id="@+id/versionFooter"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
