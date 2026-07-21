@@ -225,6 +225,24 @@ settling §2.
   is almost certainly a Kiwi UA override; the engine is still Chromium and
   the `<video>`/`play()` conclusion is engine-agnostic regardless.
 
+**Second-observer corroboration, and §2 updated (later in session 10).** A
+WhatsApp exchange confirms the in-Drive observation is not single-source
+recall: a second person (Mohamed), who was in the car, confirms tiktok.com
+video playing in the Tesla browser while driving at real highway speed
+(>90 km/h, the Diepenbeek stretch), "wel hyk laggy", and attributes the lag
+to TikTok's own CDN ("hun chinese servers"), not the browser. YouTube he
+only ever used via the app, so that one stays unconfirmed for the browser.
+With two independent in-car observers plus the phone-side DOM capture
+showing TikTok is a plain `<video>`/MP4 player, the session-7-9
+photographic-rigor bar is effectively met for the qualitative claim, so
+**`ARCHITECTURE.md` §2 has now been updated**: the "Tesla suppresses
+`<video>` in Drive" claim is reclassified from REPORTED to CONTRADICTED /
+MEASURED-real-world, WebCodecs-to-canvas stays primary for its latency
+(not because `<video>` is unusable), and MSE/HLS is no longer disqualified
+for in-motion passive media. `video-test.html`'s remaining job is to put a
+dropped-frame number on the "laggy" part, not to re-decide whether
+`<video>` plays in Drive. That part is settled: it does.
+
 ## Session 8: WebRTC probe built + widget slides rework (real user feedback round)
 
 Two tracks: the WebRTC direction from session 7's wrap-up got its full

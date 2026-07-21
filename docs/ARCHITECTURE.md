@@ -71,24 +71,39 @@ Trust boundary note: the hotspot may have other clients. The WS server requires 
   fallback" to "the only path that matters for a nav/dashboard product",
   since in-motion is the only state where a driving-focused product needs
   to actually work.
-  **CONTESTED, session 10 (docs/NEXT_SESSION.md)**: founder-reported
-  real-device counter-observation (tiktok.com and youtube.com both playing
-  smoothly, in the actual Tesla browser, in Drive, at highway speed) puts
-  this REPORTED claim in real doubt. Not yet promoted to MEASURED-FALSE -
-  `webclient/public/video-test.html` (built session 10, not yet run in the
-  car) is the structured probe that settles it with dropped-frame numbers
-  instead of recall. Do not build further on the assumption this
-  suppression is real until that probe has actually run in the car.
-- **`mseFallback.ts` deprioritized, not simply unfinished** (correction,
-  `MARKET_AND_PRICING.md` §3 item 2): MSE renders through a real `<video>`
-  element, so on any car where it would be *needed* (WebCodecs
-  unsupported), it's also the most likely to be suppressed in the one
-  state - Drive - that matters for navigation. The unimplemented Annex-B
-  to fMP4 muxer (`mseFallback.ts`) stays a real TODO for park-only/media
-  use cases, but should not be treated as a required deliverable blocking
-  anything - verify the Drive-suppression claim against a real car before
-  deleting the fallback path entirely, but stop planning around it as if
-  it were equally load-bearing.
+  **CONTRADICTED by real-world observation, session 10
+  (docs/NEXT_SESSION.md).** The REPORTED suppression claim above no longer
+  holds up. Two independent observers confirm tiktok.com playing video in
+  the actual Tesla in-car browser while the car was in Drive at real
+  highway speed (>90 km/h, the Diepenbeek stretch): the founder, plus a
+  second person (Mohamed) who drove/rode it, corroborated over WhatsApp
+  ("tiktok scrollen en videos bekijken tijdens het rijden op die tesla
+  browser werkte", "yeah ma wel hyk laggy"). The only degradation reported
+  was mild lag, which the observers themselves attributed to TikTok's own
+  CDN ("da kwam door tiktok zelf met hun chinese servers"), not to any
+  browser gear-gated suppression. Phone-side DOM capture (session-10 log)
+  independently confirms TikTok's player is a plain `<video>` element
+  playing MP4, so what worked in Drive was exactly the element this claim
+  said would be suppressed. **Evidence tag: MEASURED (real-world,
+  multi-observer, not yet instrumented).** `webclient/public/video-test.html`
+  remains worth running in the car, but its job is now to *quantify* the
+  "laggy" part with dropped-frame numbers (network vs CDN vs browser), not
+  to decide whether `<video>` works in Drive at all - that question is
+  answered: it does. Consequently, WebCodecs-to-canvas stays the primary
+  live-mirror path **for its latency, not because `<video>` is unusable in
+  Drive**, and `<video>`/MSE/HLS are legitimate candidates for passive
+  media, in Drive as well as parked.
+- **`mseFallback.ts` reopened by the session-10 finding above.** The old
+  reasoning here was that MSE renders through a real `<video>` element and
+  would therefore be suppressed in Drive, so the path was deprioritized.
+  That premise is now contradicted (see the block above: a plain `<video>`
+  played in Drive on the real car), so MSE/HLS is no longer disqualified
+  for in-motion use. The unimplemented Annex-B to fMP4 muxer stays a real
+  TODO rather than a shipped feature, but it should be reconsidered as a
+  legitimate candidate path for passive/media playback (and pairs with the
+  MediaMTX/HLS direction in `docs/MEDIAMTX_HLS_RESEARCH.md`), weighed on
+  latency and effort, not ruled out on a suppression assumption that did
+  not survive contact with the car.
 - **Codec calibration, verify against a real published competitor
   rather than guess** (`COMPETITIVE_REASSESSMENT.md` §4.1): TeslaMirror
   (a real, 5.5-year-shipping competitor, per-firmware release notes)
