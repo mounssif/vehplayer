@@ -71,39 +71,49 @@ Trust boundary note: the hotspot may have other clients. The WS server requires 
   fallback" to "the only path that matters for a nav/dashboard product",
   since in-motion is the only state where a driving-focused product needs
   to actually work.
-  **CONTRADICTED by real-world observation, session 10
-  (docs/NEXT_SESSION.md).** The REPORTED suppression claim above no longer
-  holds up. Two independent observers confirm tiktok.com playing video in
-  the actual Tesla in-car browser while the car was in Drive at real
-  highway speed (>90 km/h, the Diepenbeek stretch): the founder, plus a
-  second person (Mohamed) who drove/rode it, corroborated over WhatsApp
-  ("tiktok scrollen en videos bekijken tijdens het rijden op die tesla
-  browser werkte", "yeah ma wel hyk laggy"). The only degradation reported
-  was mild lag, which the observers themselves attributed to TikTok's own
-  CDN ("da kwam door tiktok zelf met hun chinese servers"), not to any
-  browser gear-gated suppression. Phone-side DOM capture (session-10 log)
-  independently confirms TikTok's player is a plain `<video>` element
-  playing MP4, so what worked in Drive was exactly the element this claim
-  said would be suppressed. **Evidence tag: MEASURED (real-world,
-  multi-observer, not yet instrumented).** `webclient/public/video-test.html`
-  remains worth running in the car, but its job is now to *quantify* the
-  "laggy" part with dropped-frame numbers (network vs CDN vs browser), not
-  to decide whether `<video>` works in Drive at all - that question is
-  answered: it does. Consequently, WebCodecs-to-canvas stays the primary
-  live-mirror path **for its latency, not because `<video>` is unusable in
-  Drive**, and `<video>`/MSE/HLS are legitimate candidates for passive
-  media, in Drive as well as parked.
+  **MEASURED-FALSE, session 10 (docs/NEXT_SESSION.md). The suppression
+  claim above does not hold.** `webclient/public/video-test.html` was
+  deployed to `veh.modev.be/video-test` and run in the founder's real
+  Model 3 while driving in Drive at highway speed (photographed at 77, 104,
+  and 125 km/h on the center screen, gear indicator on D). Results:
+  - **Row A, progressive MP4 in a plain `<video>`: PASS, smooth** in Drive.
+    A bare `<video>` element renders and plays while driving. This is the
+    exact element the claim said would be suppressed.
+  - **Row B, native HLS: SKIP**, "no native HLS support reported (expected
+    in Chromium)". This MEASURES the car's browser as a Chromium build
+    without native HLS (consistent with Chromium 140; native HLS only
+    landed in Chromium 142), so `<video src="...m3u8">` will not work on
+    the car and HLS must go through hls.js/MSE.
+  - **Row C, hls.js/MSE into a `<video>`: PLAYING** in Drive, but choppy,
+    with heavy dropped-frame counts (e.g. 264/269, ~513/... over ~97 s) and
+    repeated `hls.js error: mediaError / bufferSeekOverHole` in the log.
+    So MSE playback is not suppressed either, but the hls.js path is
+    unreliable/janky on this browser (buffer gap handling), which is the
+    "laggy" the observers reported.
+  The founder further reports the stream stays up across braking, shifting
+  to Park and back to Drive, opening a door, and behind a Tesla
+  software-update popup (dismiss it and playback continues), and that
+  fullscreen video works while driving. Net: **the `<video>` element is not
+  gear-gated at all.** WebCodecs-to-canvas stays the primary live-mirror
+  path **for its latency and for the smoothness gap Row A/C shows (plain
+  decode smooth, hls.js/MSE choppy), not because `<video>` is unusable in
+  Drive.** `<video>`/MSE/HLS are now legitimate candidates for passive
+  media in Drive as well as parked, with the caveat that the hls.js/MSE
+  path needs buffer-tuning work before it is smooth (Row C is the evidence,
+  a MediaMTX-repackaged fMP4 stream may behave better than the public
+  bipbop test stream used here, verify).
 - **`mseFallback.ts` reopened by the session-10 finding above.** The old
   reasoning here was that MSE renders through a real `<video>` element and
   would therefore be suppressed in Drive, so the path was deprioritized.
-  That premise is now contradicted (see the block above: a plain `<video>`
-  played in Drive on the real car), so MSE/HLS is no longer disqualified
-  for in-motion use. The unimplemented Annex-B to fMP4 muxer stays a real
-  TODO rather than a shipped feature, but it should be reconsidered as a
-  legitimate candidate path for passive/media playback (and pairs with the
-  MediaMTX/HLS direction in `docs/MEDIAMTX_HLS_RESEARCH.md`), weighed on
-  latency and effort, not ruled out on a suppression assumption that did
-  not survive contact with the car.
+  That premise is now MEASURED-false (a plain `<video>` and an MSE `<video>`
+  both played in Drive on the real car; see Row A/C above), so MSE/HLS is
+  no longer disqualified for in-motion use. The unimplemented Annex-B to
+  fMP4 muxer stays a real TODO rather than a shipped feature, but it should
+  be reconsidered as a legitimate candidate path for passive/media playback
+  (and pairs with the MediaMTX/HLS direction in
+  `docs/MEDIAMTX_HLS_RESEARCH.md`), weighed on latency, smoothness (Row C
+  was choppy), and effort, not ruled out on a suppression assumption that
+  did not survive contact with the car.
 - **Codec calibration, verify against a real published competitor
   rather than guess** (`COMPETITIVE_REASSESSMENT.md` §4.1): TeslaMirror
   (a real, 5.5-year-shipping competitor, per-firmware release notes)
@@ -148,6 +158,24 @@ bytes 10..  payload
 - Served from vepla.app (CDN). Cache-busted per release; the phone's control channel announces the minimum client version and forces a reload if stale.
 - Resilience against the TeslAA domain failure mode: the phone's local HTTP server *also* hosts the last-known-good web client bundle. Normal flow uses vepla.app (nice URL, OTA); if the domain is unreachable, the local URL path still works. Bundle ships inside the APK and updates alongside the app.
 - The /go page doubles as the compatibility probe: it reports UA, WebCodecs/MSE support, viewport, and (opt-in) uploads the result to the compatibility matrix.
+- **MEASURED (session 10, real Model 3): Reverse closes the browser, and
+  reconnection is manual today.** The one interruption the founder found
+  while testing: shifting into Reverse hands the center screen to the
+  backup camera and closes the browser tab; coming back to Drive does not
+  restore it. The recovery is manual: reconnect, reopen the browser,
+  revisit the URL, and playback resumes. Everything else (braking, Park and
+  back, door open, software-update popup, fullscreen) leaves the stream
+  running. Product requirements this implies:
+  - **Reconnect must be one tap, not a full re-pair.** After a Reverse
+    (or a GPS/app switch) the user reopens the browser and should land
+    straight back on the last live session, not a cold pairing flow. The
+    control channel should treat a returning client with a still-valid
+    pairing token as a resume, immediately re-attaching to the running
+    capture/stream, so "click and it works again" is the whole experience.
+  - **Push a bookmark in onboarding copy.** The URL should be set as a
+    car-browser bookmark (or a saved tab) so re-entry after Reverse is one
+    tap on a known target rather than retyping. Surface this in the app UI,
+    website, and store copy.
 
 ## 7. Reachability Layer (the RFC1918 problem)
 - Constraint (REPORTED, re-confirmed Nov 2025): the Tesla browser refuses connections to RFC1918 IPv4 (10/8, 172.16/12, 192.168/16). Standard hotspot addressing is therefore unreachable.

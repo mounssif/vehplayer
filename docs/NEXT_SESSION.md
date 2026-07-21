@@ -243,6 +243,46 @@ for in-motion passive media. `video-test.html`'s remaining job is to put a
 dropped-frame number on the "laggy" part, not to re-decide whether
 `<video>` plays in Drive. That part is settled: it does.
 
+**PROBE RUN IN THE CAR, the question is now MEASURED-closed (session 10,
+real Model 3, night drive).** `video-test.html` was deployed to
+`veh.modev.be/video-test` and run while driving in Drive at highway speed,
+photographed with the Tesla speedometer in frame at 77, 104, and 125 km/h,
+gear on D. This is the instrumented result the section above was waiting
+for, and it settles `ARCHITECTURE.md` §2 outright (now updated to
+MEASURED-FALSE):
+- **Row A (progressive MP4, plain `<video>`): PASS, smooth** in Drive. A
+  bare `<video>` renders and plays while driving.
+- **Row B (native HLS): SKIP**, "no native HLS support reported (expected
+  in Chromium)". This MEASURES the car browser as Chromium without native
+  HLS (consistent with 140; native HLS landed in 142), so plain
+  `<video src=m3u8>` is out and HLS must use hls.js/MSE on the car.
+- **Row C (hls.js/MSE): PLAYING** in Drive, but choppy: dropped-frame
+  counts like 264/269 and ~513/... over ~97 s, with repeated
+  `hls.js error: mediaError / bufferSeekOverHole`. Not suppressed, just
+  janky, this is the "laggy". Progressive/plain decode (Row A) was smooth;
+  the jank is specific to the hls.js buffering path on this browser.
+- Founder also confirms, qualitatively, that the stream survives braking,
+  Park-and-back-to-Drive, door open, and a Tesla software-update popup
+  (dismiss and it keeps streaming behind it), and that fullscreen works
+  while driving. So `<video>` is not gear-gated in any of those states.
+- **One real interruption found: Reverse closes the browser** (backup
+  camera takes the screen), and returning to Drive does not restore it,
+  today you reconnect, reopen the browser, and revisit the URL. Captured as
+  a product requirement in `ARCHITECTURE.md` §6: reconnect must be one tap
+  (resume the last live session on a still-valid token, not a cold
+  re-pair), and onboarding copy should push setting the URL as a car
+  bookmark so re-entry after Reverse/GPS is one tap.
+
+**Consequences for the roadmap**: (1) The canvas-vs-`<video>` architecture
+choice is no longer forced by suppression, it is now a smoothness/latency
+choice, WebCodecs-to-canvas wins on both here (Row A smooth is progressive,
+Row C hls.js is choppy), so keep it as the live-mirror primary. (2) The
+MediaMTX/HLS direction is viable for passive media in Drive, but Row C says
+the hls.js/MSE buffering needs tuning (or a cleaner fMP4 source than the
+public bipbop stream) before it is smooth, do not assume HLS is smooth on
+the car just because it plays. (3) The Reverse-closes-browser + one-tap
+resume requirement is now a real Gate-2 client task.
+
 ## Session 8: WebRTC probe built + widget slides rework (real user feedback round)
 
 Two tracks: the WebRTC direction from session 7's wrap-up got its full
