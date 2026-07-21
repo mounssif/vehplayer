@@ -35,6 +35,19 @@ object PairingToken {
         return System.currentTimeMillis() < expiry
     }
 
+    /**
+     * Slides a still-valid token's expiry forward by another full TTL
+     * window. Called on every successful `hello` (LocalMediaServer), so a
+     * token never expires mid-drive purely from wall-clock time as long as
+     * the car reconnects at least once per TTL window - closes the real
+     * failure mode session 10 found: Reverse closes the browser, and a
+     * token that happened to lapse right in that gap would otherwise force
+     * a full re-pair through /go instead of a resume.
+     */
+    fun touch(token: String, ttlMs: Long = DEFAULT_TTL_MS) {
+        activeTokens.computeIfPresent(token) { _, _ -> System.currentTimeMillis() + ttlMs }
+    }
+
     /** Builds the /go URL with the token embedded, per ARCHITECTURE.md §1 ("rendered as part of the /go URL or a 4-digit code"). */
     fun buildGoUrl(baseUrl: String, token: String): String = "$baseUrl?token=$token"
 

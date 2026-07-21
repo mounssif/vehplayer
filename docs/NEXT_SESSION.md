@@ -281,7 +281,28 @@ MediaMTX/HLS direction is viable for passive media in Drive, but Row C says
 the hls.js/MSE buffering needs tuning (or a cleaner fMP4 source than the
 public bipbop stream) before it is smooth, do not assume HLS is smooth on
 the car just because it plays. (3) The Reverse-closes-browser + one-tap
-resume requirement is now a real Gate-2 client task.
+resume requirement was built the same session, see below.
+
+**Built same session: one-tap resume after Reverse.** Three small,
+mechanical changes, no SDK available in this sandbox to run a full Gradle
+build so verified by typecheck/build (webclient) and careful manual review
+against the codebase's existing idioms (android, no new imports needed):
+- `webclient/src/main.ts`: loading with both `?token=` and `?ws=` set
+  (arriving via a fresh `/go` redirect or a bookmarked full link) now
+  auto-starts the session immediately, no tap-to-connect screen. Audio
+  still needs a real gesture, so it's a small "tap for sound" affordance
+  instead of a blocker. `npm run typecheck` and `npm run build` both pass.
+- `PairingToken.kt`: added `touch()`, called from `LocalMediaServer` on
+  every successful `hello`, sliding a valid token's expiry forward so it
+  doesn't lapse purely from wall-clock time mid-drive.
+- `CaptureService.kt`: `onHello` now also calls
+  `encoder?.requestKeyframe()`, so a reconnecting client gets a fresh IDR
+  immediately instead of waiting for the next scheduled keyframe.
+- Still open: pushing the "bookmark `/go`, not the expanded URL" guidance
+  into actual onboarding copy (app UI/website/store listing text) - this
+  session only fixed the mechanism, not the user-facing copy.
+- Not yet re-verified in the car (needs a real Reverse round trip on the
+  next drive to confirm the resume is actually instant end to end).
 
 ## Session 8: WebRTC probe built + widget slides rework (real user feedback round)
 

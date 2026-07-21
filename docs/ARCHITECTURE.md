@@ -158,24 +158,35 @@ bytes 10..  payload
 - Served from vepla.app (CDN). Cache-busted per release; the phone's control channel announces the minimum client version and forces a reload if stale.
 - Resilience against the TeslAA domain failure mode: the phone's local HTTP server *also* hosts the last-known-good web client bundle. Normal flow uses vepla.app (nice URL, OTA); if the domain is unreachable, the local URL path still works. Bundle ships inside the APK and updates alongside the app.
 - The /go page doubles as the compatibility probe: it reports UA, WebCodecs/MSE support, viewport, and (opt-in) uploads the result to the compatibility matrix.
-- **MEASURED (session 10, real Model 3): Reverse closes the browser, and
-  reconnection is manual today.** The one interruption the founder found
-  while testing: shifting into Reverse hands the center screen to the
-  backup camera and closes the browser tab; coming back to Drive does not
-  restore it. The recovery is manual: reconnect, reopen the browser,
-  revisit the URL, and playback resumes. Everything else (braking, Park and
-  back, door open, software-update popup, fullscreen) leaves the stream
-  running. Product requirements this implies:
-  - **Reconnect must be one tap, not a full re-pair.** After a Reverse
-    (or a GPS/app switch) the user reopens the browser and should land
-    straight back on the last live session, not a cold pairing flow. The
-    control channel should treat a returning client with a still-valid
-    pairing token as a resume, immediately re-attaching to the running
-    capture/stream, so "click and it works again" is the whole experience.
-  - **Push a bookmark in onboarding copy.** The URL should be set as a
-    car-browser bookmark (or a saved tab) so re-entry after Reverse is one
-    tap on a known target rather than retyping. Surface this in the app UI,
-    website, and store copy.
+- **MEASURED (session 10, real Model 3): Reverse closes the browser.**
+  The one interruption the founder found while testing: shifting into
+  Reverse hands the center screen to the backup camera and closes the
+  browser tab; coming back to Drive does not restore it on its own.
+  Everything else (braking, Park and back, door open, software-update
+  popup, fullscreen) leaves the stream running.
+- **Built, session 10: one-tap resume, so reopening the browser after
+  Reverse is "click and it works again", not a re-pair.** Three pieces:
+  - `webclient/src/main.ts` treats arriving with both `?token=` and `?ws=`
+    set (i.e. via a fresh `/go` redirect, or a bookmarked full link) as a
+    resume and skips the tap-to-connect screen entirely, calling the same
+    connect path immediately on load. Audio still needs a real user
+    gesture (browser autoplay policy), so it's offered as a small
+    non-blocking "tap for sound" affordance instead of gating video on it;
+    the manual Connect button remains for a bare dev load with no params.
+  - `PairingToken.touch()` (android) slides a still-valid token's expiry
+    forward on every successful `hello`, so a token doesn't lapse purely
+    from wall-clock time mid-drive as long as reconnects happen within the
+    TTL window.
+  - `CaptureService`'s `onHello` now calls `encoder?.requestKeyframe()` in
+    addition to `resize()`, so a reconnecting client gets an IDR+config
+    immediately instead of waiting for the next scheduled keyframe
+    (up to the intra-refresh cycle), making the resume visibly instant
+    rather than a multi-second black screen.
+  - Not yet built: pushing the bookmark recommendation into onboarding
+    copy (app UI, website, store copy) - **recommend bookmarking `/go`
+    itself, not the expanded `index.html?token=...` URL**, since `/go`
+    always mints a fresh valid redirect on every visit regardless of any
+    prior token's state.
 
 ## 7. Reachability Layer (the RFC1918 problem)
 - Constraint (REPORTED, re-confirmed Nov 2025): the Tesla browser refuses connections to RFC1918 IPv4 (10/8, 172.16/12, 192.168/16). Standard hotspot addressing is therefore unreachable.

@@ -57,6 +57,7 @@ class LocalMediaServer(
         when (val parsed = ControlMessages.parseIncoming(message)) {
             is ControlMessages.Hello -> {
                 val ok = PairingToken.isValid(parsed.token)
+                if (ok) PairingToken.touch(parsed.token)
                 authenticated[conn] = ok
                 conn.send(ControlMessages.helloAck(ok, if (ok) null else "invalid or expired token"))
                 if (!ok) {

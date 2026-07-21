@@ -19,6 +19,7 @@ app.innerHTML = `
   </div>
   <canvas id="video-canvas" style="display:none; width:100%; height:100%;"></canvas>
   <div id="stats-overlay"></div>
+  <button id="audio-btn" style="display:none;">audio off, tap for sound</button>
 `;
 
 const canvas = document.querySelector<HTMLCanvasElement>('#video-canvas')!;
@@ -26,6 +27,7 @@ const statusEl = document.querySelector<HTMLParagraphElement>('#status')!;
 const statsEl = document.querySelector<HTMLDivElement>('#stats-overlay')!;
 const connectBtn = document.querySelector<HTMLButtonElement>('#connect-btn')!;
 const connectScreen = document.querySelector<HTMLDivElement>('#connect-screen')!;
+const audioBtn = document.querySelector<HTMLButtonElement>('#audio-btn')!;
 
 // Pairing token + WS URL come from the /go page's query string, set by the
 // phone's local HTTP server when it serves this bundle (ARCHITECTURE.md §1
@@ -36,8 +38,17 @@ const params = new URLSearchParams(window.location.search);
 const wsUrl = params.get('ws') ?? `ws://${window.location.hostname}:8787/stream`;
 const token = params.get('token') ?? '';
 
+// Both params present means the browser just followed a fresh /go redirect
+// (or a bookmarked full link) rather than a bare dev load of index.html.
+// Session 10's real in-car finding: the only interruption was Reverse
+// closing the tab, and reopening it should feel like "click and it works
+// again", not a manual re-pair (ARCHITECTURE.md §6). Treat this as a resume
+// and skip the tap-to-connect step entirely.
+const arrivedViaGo = params.has('token') && params.has('ws');
+
 let renderer: VideoRenderer | null = null;
 const audioPlayer = new AudioPlayer();
+let audioReady = false;
 let inputSender: InputSender | null = null;
 let qualityLadder: QualityLadder | null = null;
 
@@ -55,23 +66,23 @@ const wsClient = new WsClient({
     if (state === 'open') {
       connectScreen.style.display = 'none';
       canvas.style.display = 'block';
+      // Audio needs a real user gesture (browser autoplay policy); an
+      // auto-resume has none to spend. Offer it as a small non-blocking tap
+      // rather than gating video on it - session 10 measured video playing
+      // fine on its own (ARCHITECTURE.md §2).
+      if (!audioReady) audioBtn.style.display = 'block';
     }
   },
 });
 
-let connecting = false;
-connectBtn.addEventListener('click', async () => {
-  // Guard re-entry: a second Connect tap used to re-init everything on top of
-  // the already-open session and break it (founder-observed: "second connect
-  // no longer worked"). One connect per page load; reload /go to retry.
-  if (connecting) return;
-  connecting = true;
-  connectBtn.disabled = true;
-
-  // User-gesture requirement for AudioContext lives here (ARCHITECTURE.md
-  // §3 "audio starts only after a user gesture on the page, the connect tap
-  // covers this").
-  await audioPlayer.initFromUserGesture().catch((e) => console.error('[audio] init failed', e));
+// Guard re-entry: a second start used to re-init everything on top of the
+// already-open session and break it (founder-observed: "second connect no
+// longer worked"). One start per page load; reload (or reopen the bookmarked
+// /go link) to retry.
+let sessionStarted = false;
+function startSession() {
+  if (sessionStarted) return;
+  sessionStarted = true;
 
   renderer = new VideoRenderer({
     canvas,
@@ -102,12 +113,37 @@ connectBtn.addEventListener('click', async () => {
   (window as unknown as Record<string, unknown>).__vehplayer = { renderer, inputSender, qualityLadder };
 
   wsClient.connect();
+}
+
+async function tryInitAudio() {
+  await audioPlayer.initFromUserGesture().then(() => { audioReady = true; }).catch((e) => console.error('[audio] init failed', e));
+  audioBtn.style.display = 'none';
+}
+
+connectBtn.addEventListener('click', async () => {
+  connectBtn.disabled = true;
+  // A real click, so this is a valid place to unlock AudioContext
+  // (ARCHITECTURE.md §3, "audio starts only after a user gesture").
+  await tryInitAudio();
+  startSession();
 });
 
-// Reverse-gear / tab-suspend lifecycle edge case (Foundation §7). Log for now,
-// TODO(claude-code): confirm real Tesla behavior at Gate 1 S2 and decide
-// whether this needs an explicit pause/resume of the decoder vs. just letting
-// the browser suspend rAF naturally.
+audioBtn.addEventListener('click', tryInitAudio);
+
+if (arrivedViaGo) {
+  // No tap to wait for: the browser navigation that got us here already is
+  // the "one tap" (opening the bookmarked /go link). Audio stays gated
+  // behind the #audio-btn affordance above until a real gesture unlocks it.
+  statusEl.textContent = 'reconnecting...';
+  startSession();
+}
+
+// Reverse-gear lifecycle (session 10, MEASURED in the real car): Reverse
+// closes the browser tab outright rather than just hiding it, so this event
+// won't fire for that case, the fix is the arrivedViaGo auto-resume above,
+// triggered on the next page load. Kept for the lesser cases that don't
+// destroy the page (app switcher, GPS view), logged rather than acted on
+// since nothing so far needed an explicit decoder pause/resume for those.
 document.addEventListener('visibilitychange', () => {
   console.log('[lifecycle] visibilitychange ->', document.visibilityState);
 });

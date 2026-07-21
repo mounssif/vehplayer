@@ -165,7 +165,17 @@ class CaptureService : Service() {
                     ?: android.util.Log.w("CaptureService", "input event dropped, accessibility service not enabled/connected")
             },
             onQualityRequest = { direction -> adjustQualityForRequest(direction) },
-            onHello = { viewportW, viewportH, dpr -> resize(viewportW, viewportH, dpr) },
+            onHello = { viewportW, viewportH, dpr ->
+                resize(viewportW, viewportH, dpr)
+                // A (re)connecting client can't decode anything until it gets
+                // an IDR + config; a resize() already emits one via a fresh
+                // encoder, but the common resume case (session 10: Reverse
+                // closes the browser, Drive reopens it, same viewport) skips
+                // resize entirely and would otherwise wait up to the next
+                // scheduled keyframe (intra-refresh cycle / GOP length).
+                // Request one now so "reopen the browser" resumes instantly.
+                encoder?.requestKeyframe()
+            },
         )
         localServer.start()
         server = localServer
