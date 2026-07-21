@@ -201,6 +201,20 @@ Two supporting lines now carry evidence behind them rather than aspiration:
 - **"Nothing Google ships can turn this off."** Earned by the WebAA collapse.
 - **"No ads. Ever."** Earned by the competitor that puts a bank advert in a driving app.
 
+**Session 10 addition**: a third supporting line, aimed past the direct
+mirroring competitors above and at the two incumbents this whole category
+implicitly gets compared to - **"No fixed templates. If your phone can
+render it, your car can show it."** This isn't aspirational copy; it's
+backed by researched, cited restrictions in Android Auto's and CarPlay's
+own developer guidelines (no custom layout, no arbitrary images/video, no
+animation, one UI template category per app) that a browser-rendered
+dashboard simply isn't subject to. Full research, concrete feature ideas
+this unlocks, and the driver-distraction gating those features still need
+live in `docs/DIFFERENTIATOR_FEATURES.md` - do not use this line in
+marketing without also shipping the Park-only gates that document
+specifies, or the honest positioning becomes the exact distracted-driving
+pattern AA/CarPlay's restrictions exist to prevent.
+
 ### 5.2 Pricing, revised
 
 The previous recommendation (free dashboard, Pro at €9.99 one-time) assumed a "competent

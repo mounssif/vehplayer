@@ -4,7 +4,9 @@ Project conventions for `vehplayer`. Load this first, every session - it's
 the fast-path summary of rules that otherwise have to be re-derived from
 `docs/VEHPLAYER_Foundation.md`, `docs/ARCHITECTURE.md`, `docs/GROWTH_SAAS.md`,
 and `docs/NEXT_SESSION.md`. Read those four (plus `docs/COMPETITIVE_REASSESSMENT.md`
-and `docs/MARKET_AND_PRICING.md` for market/pricing context) for the full
+and `docs/MARKET_AND_PRICING.md` for market/pricing context, and
+`docs/DIFFERENTIATOR_FEATURES.md` for the Android Auto/CarPlay structural-
+limits research and feature ideas that follow from it) for the full
 reasoning; this file is the checklist, not the argument.
 
 ## What this is

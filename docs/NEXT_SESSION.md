@@ -304,6 +304,86 @@ against the codebase's existing idioms (android, no new imports needed):
 - Not yet re-verified in the car (needs a real Reverse round trip on the
   next drive to confirm the resume is actually instant end to end).
 
+**Gemini second-opinion review + AA/CarPlay differentiator research
+(session 10 close-out).** The founder asked Gemini for an independent
+architecture/roadmap opinion (Google/Android being "their thing"), and
+separately asked for research into features to differentiate from
+CarPlay/Android Auto, plus a market/positioning refresh. Full writeup,
+citations, and the actual feature list live in the new
+`docs/DIFFERENTIATOR_FEATURES.md` - summary here for the changelog:
+
+- Gemini's proposal had real factual errors against this repo's own
+  MEASURED history: claimed Tesla's browser has no IPv6 support and that
+  killed WebRTC (backwards - IPv6 GUA is the one reachability tier that
+  works, per `ARCHITECTURE.md` §7, and the WebRTC probe already PASSed in
+  the car per session 9); claimed mediamtx runs bundled in the APK as the
+  current solution (this session's own `MEDIAMTX_HLS_RESEARCH.md` found
+  in-APK bundling unsupported/fragile, and HLS is a passive-media
+  candidate, not the live-mirror primary).
+- Its cloud-relay/SaaS-tunnel proposal is the exact idea already
+  considered and explicitly rejected in session 6 (`VEHPLAYER_Foundation.md`,
+  "cloud is control plane only, never media") - rejected again here, same
+  reasoning, now doubly moot since the local-reachability problem it was
+  meant to solve is already solved without cloud infrastructure.
+- Its AppWidgetHost suggestion is already built (`PinnedWidgetHost.kt`,
+  session 6/8).
+- Its Waze/Google-Maps-on-a-virtual-display idea got a real feasibility
+  pass this session: **verdict is do not build.** Blocked by AOSP
+  `signature|privileged` permissions no store app can hold; only
+  clearable via Shizuku with unverified third-party rendering behavior;
+  both Waze's and Google Maps Platform's Terms of Service separately
+  prohibit this exact kind of unauthorized integration. Recommendation:
+  intent-launch Waze/Maps to the phone's own screen instead, or keep
+  building vehplayer's own in-app nav (`GROWTH_SAAS.md` §4).
+- Its USB-dongle idea (own Wi-Fi hotspot, phone+car both join it, stream
+  stays local) is genuinely convergent with this session's earlier
+  MediaMTX hardware research, with one correction: the dongle doesn't
+  dodge Tesla's RFC1918 restriction just by being separate hardware, it
+  would need its own real addressing solution (IPv6 GUA/ULA), same rigor
+  as `ARCHITECTURE.md` §7. Real potential upside: it would remove the
+  current design's dependency on the user's specific carrier supporting
+  IPv6 tethering, which was the actual session-7 blocker one night.
+- Separately researched (with current 2026 sources): what Android Auto and
+  CarPlay structurally cannot render for third-party apps (fixed templates
+  only, no custom layout/animation/arbitrary images, video/games/browsers
+  banned as app categories entirely, capped theming, undocumented and
+  inconsistent hard item limits per real developer forum complaints). This
+  became a concrete list of 8 features vehplayer could build that neither
+  incumbent can (custom animated chrome, rich inline messaging, an
+  audio-reactive now-playing visualizer, a real multi-pane arrangeable
+  dashboard, rich destination-search cards, true mirror-any-app access,
+  animated weather radar, arbitrary third-party web-widget embeds), each
+  with the specific AA/CarPlay rule it violates and an effort estimate.
+  Every entertainment/distraction-adjacent one of these gets an explicit
+  Park-only gating requirement in the same doc, grounded in NHTSA's
+  visual-manual distraction guidelines, not just "the browser allows it."
+- **Founder's own UI feedback, captured and linked to the research**: the
+  current dashboard "doesn't feel modern," reads as a landscape-retrofit
+  rather than designed for a genuinely large screen. Confirmed by
+  inspecting `activity_car_dashboard.xml` (a conventional 60/34
+  hero-card-plus-tiles two-column layout, not an edge-to-edge design for a
+  15-17" display). Not fixed this session on purpose (needs a real design
+  pass, not an ad hoc reflow) - but tied directly to two of the new
+  differentiator features (unrestricted theming/animation, and the
+  arrangeable multi-pane layout), so "modernize the UI" and "ship a
+  CarPlay/AA-impossible feature" are the same next project, not two
+  separate ones. See `docs/DIFFERENTIATOR_FEATURES.md` §7-8 for the
+  reasoning and suggested sequencing.
+- Also updated as part of this pass: `CLAUDE.md`'s reading list now
+  includes the new doc; `GROWTH_SAAS.md` §5 gets a new "template-level"
+  moat bullet; `COMPETITIVE_REASSESSMENT.md` §5.1 gets a third positioning
+  line ("no fixed templates") with an explicit warning not to use it
+  without the Park-only gates that back it.
+
+**Session 10 handoff note**: the founder is switching to local Claude Code
+for builds after this. Everything above is research/positioning only,
+nothing new was implemented beyond what's already committed (video-test
+probe, MediaMTX/HLS research, the in-car MEASURED result, and the one-tap
+resume fix). `docs/DIFFERENTIATOR_FEATURES.md` §8 has a suggested next
+priority order (design pass first, then positioning copy, then discrete
+features, dongle reachability last, cloud relay and Waze-mirroring
+explicitly off the table) for whoever/whatever picks this up locally next.
+
 ## Session 8: WebRTC probe built + widget slides rework (real user feedback round)
 
 Two tracks: the WebRTC direction from session 7's wrap-up got its full

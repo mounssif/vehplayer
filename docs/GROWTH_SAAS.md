@@ -175,6 +175,17 @@ Lucid left the market, GM isn't addressable). The moat that actually holds:
 - **Brand-level diversification (Gate 6+, now explicitly weaker)**: kept
   as cheap insurance via the `CarProfile` abstraction, not treated as an
   active near-term lever - see §3 item 4.
+- **Template-level (new, session 10)**: Android Auto and CarPlay confine
+  every third-party app to a small fixed set of host-rendered templates
+  (no custom layout, no arbitrary images/video, no animation, capped
+  theming) with a video/game/browser category ban baked into Google's own
+  quality guidelines. vehplayer's in-car UI is a full web page, not a
+  template consumer, so this is a structural gap neither incumbent can
+  close without abandoning their own driver-distraction policy. See
+  `docs/DIFFERENTIATOR_FEATURES.md` for the researched restriction list,
+  concrete feature ideas this unlocks, and the Park-only gating those
+  features still need under the same distraction-safety reasoning AA
+  itself applies.
 
 This is the actual answer to Failure Mode #1 (Tesla ships native AA/CarPlay
 support): if that happens, Tesla-specific revenue erodes, but the product
