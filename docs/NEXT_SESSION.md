@@ -398,18 +398,26 @@ Investigated this session (chat sandbox, no car access, web research only):
   hit was a direct top-level navigation (typed/bookmarked, no initiating
   page), which is outside LNA's stated scope, so stock LNA-per-spec does
   not explain this cleanly on its own.
-- **Live lead worth chasing**: the video-test.html probe run earlier this
-  same session showed the car's actual UA as `Chrome/150.0.0.0` - many
-  versions past Chrome 142's LNA launch. Two live, unconfirmed
-  possibilities (both ASSUMED): (a) a later LNA phase extended enforcement
-  to main-frame navigations too, which the spec discussion floats as a
-  planned next step ("top-level navigations remain a risk... the
-  specification could block or show an interstitial warning when a public
-  page navigates to a local one"); or (b) more likely given Tesla's
-  RFC1918 block is already known to be a **custom** filter in their
-  Chromium fork (not stock Chromium behavior), Tesla's own policy layer
-  may now also reject this IPv6 address or the non-standard port 8080,
-  independent of anything Google shipped.
+- **Correction to this section**: an earlier pass here cited the car's
+  browser as self-reporting `Chrome/150.0.0.0` during the video-test.html
+  probe run, and reasoned from that (a later LNA phase extending to
+  main-frame navigations). That UA string was misattributed - it was read
+  off a screenshot of the founder's own phone browser opening the same
+  URL for comparison, not the Tesla's browser. **The car's actual current
+  Chromium version on this firmware is not known from tonight's test**;
+  the last real data point for the car's version is the "Chromium 140"
+  figure carried from earlier sessions, itself not re-confirmed tonight.
+  Drop the "later LNA phase" half of the hypothesis until a genuine
+  in-car UA capture exists (`webclient/public/video-test.html`'s own env
+  line, read directly off the car's screen, or `/diag`'s UA report, would
+  settle this cheaply on the next drive).
+- **Still-standing, unconfirmed lead**: Tesla's RFC1918 block is already
+  known to be a **custom** filter in their Chromium fork (not stock
+  Chromium behavior - stock Chrome has no such rule), so an extended
+  Tesla-side policy rejecting this IPv6 address, or the non-standard port
+  8080, independent of anything Google shipped, remains plausible. This
+  does not depend on the car's Chromium version and is the one part of
+  the original reasoning that survives the correction above.
 - **Not yet distinguished, needs a real car test**: (1) try the identical
   `[ipv6]:8080/go` URL from a laptop/phone on the same hotspot - if that
   works, the block is Tesla-specific, not a network routing problem; (2)

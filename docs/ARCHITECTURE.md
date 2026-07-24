@@ -204,11 +204,17 @@ bytes 10..  payload
   `NEXT_SESSION.md`'s session 10 section. Stock Chrome's Local Network
   Access feature is ruled out as the direct cause (it explicitly excludes
   main-frame navigations per its own spec, and this was a top-level
-  navigation), but the car's browser self-reported `Chrome/150.0.0.0`
-  earlier the same night - many versions past LNA's Chrome-142 launch -
-  so either a later LNA phase or (more likely, given the RFC1918 block is
-  already known to be a Tesla-custom filter, not stock Chromium) an
-  extended Tesla-side policy is a live, unconfirmed possibility. **Do not
+  navigation). **Correction**: an earlier version of this note cited the
+  car's browser as self-reporting `Chrome/150.0.0.0` - that UA string was
+  misread from a phone-browser screenshot (the founder's own phone opening
+  the same URL for comparison), not the Tesla's browser; the car's actual
+  current Chromium version on this firmware is **not known** from
+  tonight's test. The only real, still-standing lead is that the RFC1918
+  block is already known to be a Tesla-custom filter (not stock Chromium
+  behavior), so an extended Tesla-side policy covering this IPv6 address
+  or the non-standard port 8080 remains plausible, but unconfirmed - the
+  "later LNA phase" half of the original hypothesis is now unsupported and
+  should be dropped until the car's real UA is captured. **Do not
   treat "tier 1 (IPv6) is the only viable path" as settled until this is
   re-tested and narrowed down** (same address via a laptop on the hotspot;
   a public HTTPS control on port 443; the same host on a standard port).
