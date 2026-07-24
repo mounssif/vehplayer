@@ -197,6 +197,21 @@ bytes 10..  payload
   3. **TeslAA mechanism (REPORTED working for years, now MEASURED broken on Android 16 - same BPF hardening; plausibly the reason TeslAA-lineage apps' virtual-IP modes degrade on new phones):** VpnService assigns an address from a range we control or coordinate; DNS points there; traffic never actually leaves the local link.
 - Whatever wins: fully automated. The user sees one Android VPN consent dialog at most, once, with honest copy.
 - DNS dependency rule: the resolved address must work without internet on the car side where possible (Tesla uses the hotspot's DHCP-provided DNS; the phone can run a tiny DNS responder for go.vepla.app, spike S1 verifies the car accepts it).
+- **OPEN AGAIN, session 10: tier 1 (IPv6) hit a new, previously-unseen
+  failure - `ERR_ACCESS_DENIED` on a direct `/go` navigation to the
+  `rmnet_data7`-bound IPv6 GUA, not the `ERR_CONNECTION_REFUSED` this doc's
+  tier-1 conclusion above was based on.** Full detail and evidence tags in
+  `NEXT_SESSION.md`'s session 10 section. Stock Chrome's Local Network
+  Access feature is ruled out as the direct cause (it explicitly excludes
+  main-frame navigations per its own spec, and this was a top-level
+  navigation), but the car's browser self-reported `Chrome/150.0.0.0`
+  earlier the same night - many versions past LNA's Chrome-142 launch -
+  so either a later LNA phase or (more likely, given the RFC1918 block is
+  already known to be a Tesla-custom filter, not stock Chromium) an
+  extended Tesla-side policy is a live, unconfirmed possibility. **Do not
+  treat "tier 1 (IPv6) is the only viable path" as settled until this is
+  re-tested and narrowed down** (same address via a laptop on the hotspot;
+  a public HTTPS control on port 443; the same host on a standard port).
 
 ## 8. Gate-1 Spike Protocols (run in the founder's Model 3)
 - **S1 Reachability matrix.** A probe APK + probe page. For each of {IPv6 GUA, IPv6 ULA, CGNAT-via-VPN, RFC1918 control, public-via-VPN}: can the browser load HTTP? open a WS? sustain 10 Mbps for 60 s? Repeat after the next firmware update lands. Output: the §7 decision + evidence table.

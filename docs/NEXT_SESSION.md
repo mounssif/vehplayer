@@ -375,6 +375,58 @@ citations, and the actual feature list live in the new
   line ("no fixed templates") with an explicit warning not to use it
   without the Park-only gates that back it.
 
+**New reachability finding, same night: `/go` over IPv6 now returns
+`ERR_ACCESS_DENIED`, not the previously-seen `ERR_CONNECTION_REFUSED`.**
+MEASURED, real Model 3, connect-info overlay showed the standard two
+candidate addresses (`rmnet_data7`-bound
+`2a02:a020:3c3:4dc7:c941:350f:5008:5ff1` and `ap_br_swlan0`-bound
+`2a02:a020:3c3:4dc7::6a`). The car's browser was pointed at
+`http://[2a02:a020:3c3:4dc7:c941:350f:5008:5ff1]:8080/go` (the
+`rmnet_data7` one) and got `ERR_ACCESS_DENIED`; the RFC1918 hotspot address
+(`10.142.169.193:8080/diag`) got the already-known `ERR_CONNECTION_REFUSED`
+as expected. `ERR_ACCESS_DENIED` does not appear anywhere else in this
+document's history - this is new, not a repeat of a known failure mode.
+
+Investigated this session (chat sandbox, no car access, web research only):
+- **Ruled out (REPORTED, primary source, WICG's own `local-network-access`
+  explainer)**: Chrome's Local Network Access feature (LNA, shipped Chrome
+  142, Oct 2025 - blocks a page from fetching local/private-network targets
+  without a permission prompt) explicitly does **not** cover main-frame
+  navigations as currently specified - "Chrome does not currently enforce
+  any LNA restrictions on main frame navigations," only subresource
+  fetches/iframes/subframes initiated by an already-loaded page. Our `/go`
+  hit was a direct top-level navigation (typed/bookmarked, no initiating
+  page), which is outside LNA's stated scope, so stock LNA-per-spec does
+  not explain this cleanly on its own.
+- **Live lead worth chasing**: the video-test.html probe run earlier this
+  same session showed the car's actual UA as `Chrome/150.0.0.0` - many
+  versions past Chrome 142's LNA launch. Two live, unconfirmed
+  possibilities (both ASSUMED): (a) a later LNA phase extended enforcement
+  to main-frame navigations too, which the spec discussion floats as a
+  planned next step ("top-level navigations remain a risk... the
+  specification could block or show an interstitial warning when a public
+  page navigates to a local one"); or (b) more likely given Tesla's
+  RFC1918 block is already known to be a **custom** filter in their
+  Chromium fork (not stock Chromium behavior), Tesla's own policy layer
+  may now also reject this IPv6 address or the non-standard port 8080,
+  independent of anything Google shipped.
+- **Not yet distinguished, needs a real car test**: (1) try the identical
+  `[ipv6]:8080/go` URL from a laptop/phone on the same hotspot - if that
+  works, the block is Tesla-specific, not a network routing problem; (2)
+  try a known public HTTPS site on port 443 in the Tesla browser as a
+  control - if that's fine, the block is scoped to non-standard-port/
+  private-looking targets, not "all non-CDN traffic"; (3) try the same
+  IPv6 host on port 443/80 instead of 8080 to rule out port-specificity.
+- **Do not treat this as a repeat of the RFC1918 finding** - it's a
+  different address family (global IPv6, not RFC1918 IPv4) and a different
+  error code (an immediate client-side denial, not a network-level
+  refusal), so treat ARCHITECTURE.md §7's "IPv6 GUA is the one tier that
+  works" conclusion as newly back in question until one of the three tests
+  above narrows this down. This is directly the project's own stated
+  "current real blocker" (CLAUDE.md) still being unresolved, now with a
+  sharper, previously-undocumented symptom to chase instead of a repeat
+  timeout/refusal.
+
 **Session 10 handoff note**: the founder is switching to local Claude Code
 for builds after this. Everything above is research/positioning only,
 nothing new was implemented beyond what's already committed (video-test
@@ -382,7 +434,12 @@ probe, MediaMTX/HLS research, the in-car MEASURED result, and the one-tap
 resume fix). `docs/DIFFERENTIATOR_FEATURES.md` §8 has a suggested next
 priority order (design pass first, then positioning copy, then discrete
 features, dongle reachability last, cloud relay and Waze-mirroring
-explicitly off the table) for whoever/whatever picks this up locally next.
+explicitly off the table) for whoever/whatever picks this up locally next -
+**but the `ERR_ACCESS_DENIED` finding above is more urgent than any of
+that list and should be diagnosed first**, since it bears directly on
+whether the core reachability tier this whole product depends on
+(`ARCHITECTURE.md` §7 tier 1) still works at all on the car's current
+firmware.
 
 ## Session 8: WebRTC probe built + widget slides rework (real user feedback round)
 
