@@ -123,3 +123,10 @@ manual equivalents, if the Makefile isn't available for some reason:
 A `/go` round trip has never been completed in an actual Tesla, across
 every session so far (`docs/NEXT_SESSION.md`). Everything else is
 speculative-but-evidence-backed until that passes.
+
+**Read `docs/REACHABILITY_RETHINK.md` before working on this blocker.**
+Every in-car attempt on record varied only the *address* while always
+using plain `http://`, a bare IP literal, and a non-standard port. The URL
+shape the car provably accepts (real hostname, real certificate, standard
+port) has never been aimed at the phone. That doc has the four zero-code
+observations that narrow it and the designs each outcome unlocks.

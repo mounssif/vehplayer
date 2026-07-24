@@ -435,6 +435,26 @@ Investigated this session (chat sandbox, no car access, web research only):
   sharper, previously-undocumented symptom to chase instead of a repeat
   timeout/refusal.
 
+**Strategic re-read of the whole blocker (session 10, Opus 5 pass):
+`docs/REACHABILITY_RETHINK.md`.** Written after the founder asked what had
+been overlooked. Headline finding: across every in-car attempt on record,
+**only the address was ever varied** - the scheme was always plain `http://`,
+the host was always a bare IP literal, and the port was always non-standard
+(verified against the code: NanoHTTPD, no TLS anywhere, 8080/8787). The one
+URL shape the car demonstrably accepts every day (`https://veh.modev.be`,
+real hostname, real certificate, port 443) has never been pointed at the
+phone. Tonight's `ERR_ACCESS_DENIED` differing from session 9's
+`ERR_CONNECTION_REFUSED`, with the phone's request counters at zero, says a
+different rule fired and the browser refused before sending a packet - so
+the IPv6 address is one of four suspects, not the proven culprit. The doc
+lays out four zero-code observations that narrow it (starting with the
+laptop-over-IPv6 control that was never run), the "real hostname plus real
+certificate pointing at a local address" design those tests would unlock,
+the reframing of the dongle as the escape hatch for what Android's sandbox
+forbids (port 443, local DNS, key custody), and a dashboard-first strategic
+hedge that would decouple a public release from the transport question
+entirely. Read it before doing anything else.
+
 **Session 10 handoff note**: the founder is switching to local Claude Code
 for builds after this. Everything above is research/positioning only,
 nothing new was implemented beyond what's already committed (video-test
