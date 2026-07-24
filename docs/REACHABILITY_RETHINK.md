@@ -245,14 +245,112 @@ What should not happen is another session of building features on top of an
 unverified transport. The four observations in §3 cost one drive and no
 code, and they determine which of two quite different companies this is.
 
+## 8b. The self-hosted tunnel idea: 80 percent right, and the wrong 20 percent is fatal
+
+The founder proposed (session 10, brainstorm): give every device an opaque
+per-device subdomain like `JD82BV103.vehp.nl`, pair it by scanning a QR in
+the car, persist the session so it is not re-done every trip, and have
+`*.vehp.nl` tunnel that name through to the phone's exposed port, so "we
+never see or process anything." Possibly WireGuard underneath.
+
+**Keep almost all of this. It is better than what §4 sketched.** Three
+parts are genuine improvements and should be adopted verbatim:
+
+- **An opaque per-device label** (`JD82BV103`) is not just a name, it is an
+  unguessable capability. It solves in one stroke what §4 left vague, and
+  it means the hostname itself carries authorization.
+- **QR bootstrap** answers the question §4 ducked: how does the car ever
+  learn the URL, given nobody wants to type a hostname into a car browser.
+  Scanning is the correct interaction, and the repo already has QR
+  rendering in the connect-info overlay.
+- **A short domain** (`vehp.nl`) matters more than it looks, because the
+  fallback when a QR fails is a human typing it on a car touchscreen.
+- **Session persistence** is the same requirement the session-10 Reverse
+  finding produced independently (one-tap resume, `ARCHITECTURE.md` §6).
+
+**The one part that has to change: what the DNS record points at.**
+
+If `JD82BV103.vehp.nl` resolves to our server and we tunnel through to the
+phone, then every video byte flows phone -> our server -> car. That is a
+cloud media relay, the thing rejected in session 6, and this time it fails
+on arithmetic before it fails on principle:
+
+- The stream is 8 Mbps (`ARCHITECTURE.md` §2 default) = **3.6 GB per
+  hour**, one direction.
+- **The car's internet is the phone's hotspot.** So relayed bytes cross
+  the phone's cellular link twice: up to our server, then back down to the
+  phone and over Wi-Fi to the car. That is **7.2 GB per hour of the user's
+  own mobile data**, roughly **216 GB/month at one hour of driving a day**,
+  to move video between two devices about a meter apart. No consumer data
+  plan survives that, and the user pays it, not us.
+- Our egress at typical cloud pricing is **$0.04 to $0.32 per user per
+  hour**, i.e. **$1 to $10 per user per month at one hour a day**, against
+  a **one-time** EUR 9.99 price (`COMPETITIVE_REASSESSMENT.md` §5.2).
+  Every hour driven after the first month or two is a direct loss, forever,
+  with no mechanism to recover it.
+- It adds a full internet round trip to a pipeline whose entire value is
+  sub-200ms touch response.
+- "We never see it" is not achievable by intent. The bytes physically
+  transit our infrastructure, which makes us a processor with the legal and
+  operational exposure that carries, even if we never read them.
+
+WireGuard does not change any of this: the car is a locked browser and
+cannot run a WireGuard client, so the tunnel could only terminate at our
+server, which is the same relay with extra steps. FIDO/WebAuthn is likewise
+overkill; an opaque bearer name delivered out-of-band by QR is already the
+right strength for a local-link pairing.
+
+**The fix is one line of the design:** point the AAAA record at the phone's
+own address instead of at our tunnel. Everything else in the founder's
+proposal survives intact.
+
+```
+JD82BV103.vehp.nl   AAAA   <phone's current IPv6 GUA>     (published by the
+                                                           phone via the
+                                                           control plane)
+```
+
+The car then opens `https://JD82BV103.vehp.nl:8443/`, which is a real
+hostname with a real publicly-trusted certificate, resolving to an address
+one Wi-Fi hop away. Same QR, same opaque identifier, same session
+persistence, same "we see nothing" property, except now it is structurally
+true rather than a promise: **we answer a DNS query and never appear in the
+data path at all.** Zero egress cost, zero added latency, zero of the
+user's mobile data.
+
+Worth stating plainly because it is the crux: **a DNS record is control
+plane, a tunnel is data plane.** The founder's instinct to use our
+infrastructure as the rendezvous is right. It just has to be a rendezvous
+that hands out an address, not one that carries the traffic.
+
+**Where a relay legitimately belongs**: as an explicitly-labelled fallback
+tier for users where the direct path cannot be established, in the shape
+Tailscale uses (try direct first, relay only on failure, be transparent
+that it is happening and that it is slower). That is a defensible product
+decision, but it is a conscious amendment to the media-in-cloud rule, it
+needs a recurring revenue line to fund the bandwidth, and it should be
+decided the way §7 says: deliberately, not drifted into.
+
+**One open question this surfaces**: Teslas with Premium Connectivity have
+their own LTE, so a car may not be on the phone's hotspot at all. If the
+car is independently online, the double-cellular arithmetic above halves,
+and the local-link assumption this whole architecture rests on disappears
+for those users. Nobody has checked which connection the browser actually
+uses when both are available (ASSUMED, unverified). It affects both the
+relay math and whether a local path exists at all, so it belongs in the
+§3 test list.
+
 ## 9. Recommendation
 
 1. Run §3's four observations on the next drive. Nothing else is on the
-   critical path until they are done.
+   critical path until they are done. Add: check whether the car's browser
+   uses Premium Connectivity LTE instead of the hotspot when both exist
+   (§8b's open question).
 2. Capture the car's real Chromium version while there, so the compat
    matrix stops resting on a stale, once-mis-attributed number.
 3. Hold §4 (real hostname plus real certificate) as the leading candidate
-   design, but do not build it until §3 says which suspect is guilty.
+   design, **with §8b's naming, QR bootstrap and session persistence folded
+   in**, but do not build it until §3 says which suspect is guilty.
 4. Treat §7 as a live strategic option to decide deliberately, not a
    fallback to drift into.
 5. Leave the differentiator-feature backlog
