@@ -458,6 +458,116 @@ than baked into the APK. DNS-01 issuance works regardless of what the
 A/AAAA record points at, so a certificate can be held for names that
 resolve to a local address.
 
+## 8d. Cross-checking four other models' proposals against our measured data
+
+The founder put the same question to ChatGPT, Gemini, Grok and Kimi, and
+proposed this chain:
+
+```
+Vehicle Browser -> xxx.vehp.nl -> DNS? -> Android VPN intercept
+  -> 192.168.43.1 -> Caddy -> MediaMTX -> WebRTC
+```
+
+All four models independently converged on roughly "split DNS plus WebRTC
+P2P". That convergence is worth noticing but it is **not** evidence: they
+are reasoning from general knowledge, none of them has this project's
+measured data, and the same pattern already produced a confidently wrong
+IPv6/WebRTC claim earlier this session (`DIFFERENTIATOR_FEATURES.md` §1).
+Two of the links they agree on are contradicted by our own in-car
+measurements.
+
+### Link-by-link verdict on the proposed chain
+
+- **`xxx.vehp.nl`**: keep. Correct, and §8b/§8c already build on it.
+- **`DNS?`**: the question mark is the right instinct. Public DNS works
+  rootless; local DNS needs DHCP control the phone does not have (§8c).
+- **`Android VPN intercept`: dead, and this is the most important
+  correction.** All four models suggest `VpnService` as the DNS-interception
+  mechanism, citing AdGuard/Tailscale/RethinkDNS as precedent. Those apps
+  filter **the phone's own** traffic. `VpnService` captures traffic from
+  apps on the device; it does **not** capture forwarded tethering traffic
+  from hotspot clients. The car's DNS query is forwarded by the kernel
+  tethering path and never enters the tun interface. Worse, we already
+  MEASURED (session 7) that Android 14+ BPF ingress-discard hardening
+  deliberately isolates VPN addresses from tethered peers. So this is not
+  merely undocumented, the platform is actively hardened against it. **A
+  rootless phone cannot intercept its hotspot clients' DNS.**
+- **`192.168.43.1`**: MEASURED blocked by Tesla for both TCP and UDP
+  (session 9). Only viable if §8c's hypothesis (b) holds, which is exactly
+  the untested question.
+- **`Caddy`**: unnecessary, and it inherits the in-APK Go-binary problem
+  documented in `MEDIAMTX_HLS_RESEARCH.md` (Android's no-execute-from-
+  writable-app-storage rule), plus Caddy's automatic TLS wants port 443
+  which Android forbids without root. The app already ships **NanoHTTPD
+  2.3.1**, which has `makeSecure(SSLServerSocketFactory, ...)` built in.
+  TLS termination is a small change to a server we already run, not a new
+  component in a foreign runtime.
+- **`MediaMTX`**: adds nothing to the mirror path. `CaptureService` already
+  produces H.264 access units from MediaCodec and ships them over the
+  existing wire protocol to a WebCodecs canvas. MediaMTX would repackage
+  something we already have in exactly the form we need. It earns its place
+  only for passive-media HLS or foreign RTSP/RTMP ingest
+  (`MEDIAMTX_HLS_RESEARCH.md`), not here.
+- **`WebRTC`: does not do what all four models claim it does.** Every one
+  of them argues ICE will find the local path, and Gemini states explicitly
+  that serving the page from a public domain "bypasses the browser's local
+  IP block". That is wrong on our data: **the block is on the destination
+  address, not on the page's origin**, and session 9 measured it covering
+  **UDP as well as TCP** (laptop UDP to the phone succeeded at 22ms; car
+  UDP to the identical address failed). ICE host candidates on a blocked
+  address are exactly as dead as HTTP was. WebRTC is a good transport
+  *once an address is reachable*; it is not a way around an unreachable
+  one, and TURN as the fallback is the cloud media relay §8b rejected on
+  arithmetic.
+
+### What is genuinely valuable in the other answers
+
+Two contributions are real and are adopted:
+
+- **Gemini's Plex precedent, and it is the strongest validation yet for
+  §8c.** Plex has shipped `*.plex.direct` for years at large scale: public
+  DNS returns the **private** LAN address of the user's own server
+  (`192-168-1-100.<hash>.plex.direct` -> `192.168.1.100`), paired with a
+  real wildcard certificate so the browser gets valid HTTPS to a local
+  address. That is precisely the §8c design, proven in production by a
+  major product rather than invented here. It means every part of the
+  mechanism except Tesla's custom filter is battle-tested, and it is worth
+  studying their exact naming and certificate-distribution scheme before
+  designing ours.
+- **ChatGPT's DNS-over-HTTPS warning, which nobody else raised.** Embedded
+  Chromium builds may use a public DoH resolver and ignore the
+  DHCP-provided DNS entirely, which would silently break **any** local-DNS
+  scheme. This is a real, specific, testable risk. Note the useful
+  corollary: **DoH breaks local DNS but not public DNS**, so it is a third
+  independent argument for the public-record approach over a phone-hosted
+  resolver.
+
+Minor but worth keeping: Grok's note that iOS hotspots default to
+`172.20.10.1` (useful when the iOS sender arrives), and Gemini's reminder
+that CORS headers are required if the player page and the stream end up on
+different origins.
+
+### The chain that actually follows
+
+Stripping the dead and redundant links leaves something far smaller than
+what was proposed:
+
+```
+Vehicle browser
+  |  https://<opaque-id>.vehp.nl:8443        (real hostname, real cert, QR-paired)
+DNS: public record, DNS-only, points at the phone's address
+  |
+NanoHTTPD + makeSecure()                     (already in the app, add TLS)
+  |
+existing binary wire protocol -> WebCodecs canvas   (already built)
+```
+
+No VPN, no Caddy, no MediaMTX, no WebRTC on the critical path. The delta
+against what is already built and emulator-verified is **TLS termination on
+the existing server, plus one control-plane call to publish a DNS record**.
+That is the honest size of the remaining work in the good branch, and it is
+much smaller than the proposed chain implies.
+
 ## 9. Recommendation
 
 0. **Run §8c's hostname-to-private-address test first.** It costs nothing,
