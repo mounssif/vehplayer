@@ -340,9 +340,131 @@ uses when both are available (ASSUMED, unverified). It affects both the
 relay math and whether a local path exists at all, so it belongs in the
 §3 test list.
 
+## 8c. Split DNS, the carrier dependency, and a free experiment that may collapse the whole problem
+
+Follow-up founder questions: is the AAAA-to-the-phone design actually
+possible, does it not make us hostage to whether the SIM provider does
+IPv6, and could the phone instead run its own DNS (dnsmasq/CoreDNS)
+handing out `DNS = 192.168.43.1` over DHCP so that `xxx.vehp.nl` resolves
+to the phone's own hotspot address?
+
+### The split-DNS variant: right goal, blocked mechanism, but there is a way around it
+
+**Running DNS on the phone does not work rootless.** Android's tethering
+stack owns the DHCP server for hotspot clients and there is no public API
+to set DHCP option 6 (the DNS server handed to clients). `SoftApConfiguration`
+does not expose it, `VpnService` captures the device's own app traffic
+rather than forwarded tethering traffic, and `LocalOnlyHotspot` is
+system-managed the same way (ASSUMED, consistent with §4's earlier note and
+with `LocalOnlyHotspotController.kt` having no DHCP surface). On a dongle
+this is a five-line dnsmasq config, which is one more entry on §6's list of
+things the sandbox forbids and a small Linux board does natively.
+
+**But controlling DHCP was never actually necessary.** Public DNS is
+allowed to return private addresses, and that is enough to get exactly the
+effect the founder is after:
+
+```
+JD82BV103.vehp.nl   A   10.142.169.193     (the phone's hotspot address,
+                                            published in our own zone)
+```
+
+The car uses its normal resolver, gets the phone's local address, and
+connects over the hotspot. No DHCP control, no root, no carrier
+involvement. Verified from this sandbox that public wildcard-DNS services
+already do exactly this: `10.142.169.193.sslip.io` (the phone's real
+hotspot address from the session-10 screenshot) resolves to
+`10.142.169.193`, and `192-168-43-1.sslip.io` resolves to `192.168.43.1`
+(MEASURED, this sandbox's resolver, though note the car's resolution path
+runs through the phone's forwarder to the carrier's resolver, which may
+apply DNS-rebinding protection that strips private answers - see the A/B
+control below).
+
+### Why this is the highest-value test available, not just a convenience
+
+There are two plausible ways Tesla could have implemented the RFC1918
+block, and **the entire ten-session evidence base cannot tell them apart**,
+because every attempt on record used a bare IP literal (§1):
+
+- **(a) It inspects the resolved IP.** A hostname changes nothing; the
+  block still fires. Most likely, since that is where Chromium's own
+  address-space machinery sits.
+- **(b) It inspects the URL and rejects private-range IP literals.** Then a
+  hostname that resolves to the same address **slips straight through**,
+  and this is over.
+
+If (b) holds, the consequences are large: no IPv6 requirement, therefore
+**no carrier dependency at all**, no dynamic-address problem, and the
+product works on any SIM including IPv4-only ones. That directly answers
+the founder's worry about being hostage to the provider.
+
+The test costs nothing and needs no build:
+
+1. **Laptop control first** (same method that cracked session 9): from a
+   laptop on the hotspot, open `http://<hotspot-ip>.sslip.io:<port>/diag`.
+   This proves the name resolves through the carrier's resolver and that
+   the phone answers on it. If the laptop fails, the resolver is stripping
+   private answers and the test is inconclusive, not a Tesla result.
+2. **Then the identical URL in the car.** Loads = hypothesis (b), the
+   filter is literal-based, and the reachability problem is solved with a
+   DNS record. Same `ERR_ACCESS_DENIED`/refusal = hypothesis (a), the
+   filter is address-based, and a non-private address is genuinely required.
+
+Run this before anything in §4 gets built, because it decides whether §4 is
+needed at all.
+
+### The carrier IPv6 dependency, stated honestly
+
+The founder is right to flag it. Tonight's connect-info overlay reported
+`[SIM has IPv6] [hotspot exposes IPv6]`, so this SIM is fine, but that is
+one carrier. IPv6 availability varies by operator and APN configuration,
+and session 7 already lost a night to a SIM with no IPv6 GUA on cellular.
+As a shipped product that becomes a support burden of the form "works on
+carrier X, not on carrier Y", which is exactly the class of problem that
+gives this category its 2-star reviews (`COMPETITIVE_REASSESSMENT.md` §4.4).
+
+So the preference order is: **hypothesis (b) if it holds (no dependency at
+all) > IPv6 GUA (carrier-dependent) > dongle (dependency removed by
+hardware)**. That ordering is another reason to run the free test first.
+
+### The Cloudflare API idea: yes, with two non-negotiable details
+
+Dynamic per-device subdomains via Cloudflare's API is the right mechanism,
+and `cloud/` already exists as a Cloudflare Worker to host it. Two things
+must be right:
+
+- **Never ship a Cloudflare API token in the APK.** It is extractable, and
+  a leaked token with DNS-edit rights lets anyone rewrite the whole zone.
+  The phone must authenticate to **our Worker** per-device, and the Worker
+  holds the credentials and makes the change. This is precisely what a
+  control plane is for, and it keeps the token server-side.
+- **The record must be DNS-only, never proxied.** An orange-cloud record
+  routes traffic through Cloudflare, which would make us the media relay
+  §8b just rejected, and Cloudflare cannot reach a local address anyway.
+  Grey cloud, TTL at the minimum (60s) so it tracks the phone's changing
+  address, and only update when the address actually changes so the API
+  rate limits are not hit at scale.
+
+### Certificates at scale
+
+Let's Encrypt's per-registered-domain certificate limits make one
+certificate per device impractical (REPORTED, LE rate limits). A single
+wildcard covering every device is operationally simple, but then every
+device shares one private key, so extraction from any APK compromises the
+whole domain. Practical middle ground: a **wildcard on a dedicated
+throwaway domain** whose compromise costs nothing and never touches the
+main domain, **delivered and rotated through the control plane** rather
+than baked into the APK. DNS-01 issuance works regardless of what the
+A/AAAA record points at, so a certificate can be held for names that
+resolve to a local address.
+
 ## 9. Recommendation
 
-1. Run §3's four observations on the next drive. Nothing else is on the
+0. **Run §8c's hostname-to-private-address test first.** It costs nothing,
+   needs no build, and if it passes the reachability problem is solved by a
+   DNS record with no IPv6 and no carrier dependency. It is the single
+   highest-value observation available and it has never been made.
+1. Run §3's four observations on the same drive. Nothing else is on the
    critical path until they are done. Add: check whether the car's browser
    uses Premium Connectivity LTE instead of the hotspot when both exist
    (§8b's open question).
