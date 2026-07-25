@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>vehplayer reachability matrix</title>
+<!--
+  The one-drive test that decides the whole reachability question
+  (docs/REACHABILITY_RETHINK.md 3 and 8c).
+
+  Ten sessions of in-car attempts varied only the ADDRESS while always
+  using plain http://, a bare IP literal, and a non-standard port. This
+  page varies the other three, so one drive tells us which property of the
+  URL the car's browser actually objects to.
+
+  The decisive row is C1: a public HOSTNAME that resolves to the phone's
+  private address (sslip.io). If that loads where the bare IP literal did
+  not, Tesla's filter inspects the URL rather than the resolved IP, and
+  the whole problem is solved by a DNS record with no IPv6 and no carrier
+  dependency at all.
+
+  Design notes:
+  - Sections A and B run automatically (same-origin or https, so no
+    mixed-content wall). Section C cannot be fetched from this https page
+    (mixed content blocks http:// subresources), so those are real
+    NAVIGATIONS you tap, exactly matching how /go actually failed.
+  - Verdicts persist in localStorage, so navigating away and coming back
+    with the browser's back arrow does not lose the log. That matters a
+    lot in a car, where tab management is painful.
+  - Everything is self-contained, no external scripts, so it cannot fail
+    for a CDN reason while you are driving.
+
+  Protocol: park first, fill in the two addresses from the phone's
+  connect-info chip, run every row, then photograph the summary. Repeat
+  nothing while driving; this test has nothing to do with motion.
+-->
+<style>
+  :root { --bg:#14120F; --card:#211E19; --text:#F5F0E6; --muted:#948E82;
+          --ok:#5dbb63; --fail:#e0645c; --warn:#F2A93B; --info:#6aa9d8; }
+  * { box-sizing:border-box; }
+  body { font-family:system-ui,sans-serif; background:var(--bg); color:var(--text);
+         margin:0; padding:18px; }
+  h1 { font-size:25px; margin:0 0 2px; }
+  h2 { font-size:19px; margin:22px 0 8px; color:var(--warn); }
+  .sub { color:var(--muted); margin:0 0 14px; font-size:14px; word-break:break-all; }
+  .note { background:var(--card); border-radius:12px; padding:12px 16px; margin-bottom:14px;
+          font-size:15px; line-height:1.45; }
+  .note b { color:var(--warn); }
+  .row { background:var(--card); border-radius:12px; padding:12px 16px; margin-bottom:10px; }
+  .rowtop { display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+  .chip { font-size:20px; font-weight:800; min-width:104px; text-align:center;
+          border-radius:9px; padding:7px 4px; background:#000; }
+  .PENDING { color:var(--muted); } .RUNNING { color:var(--warn); }
+  .PASS { color:var(--ok); } .FAIL { color:var(--fail); } .SKIP { color:var(--info); }
+  .label { font-size:17px; font-weight:600; }
+  .why { color:var(--muted); font-size:13px; margin-top:3px; }
+  .url { color:var(--info); font-size:13px; word-break:break-all; margin-top:5px;
+         font-family:ui-monospace,monospace; }
+  .btns { margin-top:9px; display:flex; gap:8px; flex-wrap:wrap; }
+  button, .golink { font-size:16px; padding:9px 16px; border-radius:9px; border:0;
+           background:#3a352c; color:var(--text); font-weight:600; cursor:pointer;
+           text-decoration:none; display:inline-block; }
+  .golink { background:var(--info); color:#08141d; font-weight:800; }
+  button.ok { background:var(--ok); color:#0c1f0d; }
+  button.bad { background:var(--fail); color:#2a0d0b; }
+  input { font-size:16px; padding:9px 11px; border-radius:8px; border:1px solid #3a352c;
+          background:#000; color:var(--text); width:100%; max-width:430px;
+          font-family:ui-monospace,monospace; margin-top:5px; }
+  .field { margin-bottom:11px; }
+  .field label { font-size:14px; color:var(--muted); }
+  #log { font:12px/1.5 ui-monospace,monospace; color:var(--muted); background:#000;
+         border-radius:10px; padding:10px; margin-top:8px; max-height:260px; overflow:auto;
+         white-space:pre-wrap; }
+  table { width:100%; border-collapse:collapse; font-size:14px; margin-top:6px; }
+  td { padding:4px 6px; border-bottom:1px solid #2e2a24; vertical-align:top; }
+  td:first-child { color:var(--muted); white-space:nowrap; width:1%; padding-right:14px; }
+  td.v { font-family:ui-monospace,monospace; word-break:break-all; }
+</style>
+</head>
+<body>
+<h1>vehplayer reachability matrix</h1>
+<p class="sub" id="here"></p>
+
+<div class="note">
+  <b>Do this parked, engine on, phone streaming.</b> Read the two addresses off
+  the phone's connect-info chip and paste them below. Then work down the rows in
+  order. Section C rows are real page loads: tap GO, look at what happens, press
+  the browser's back arrow, then tap PASS or FAIL. Your verdicts are saved, so
+  going back and forth does not lose anything. Photograph the summary at the end.
+  <br><br>
+  <b>Row C1 is the one that matters.</b> If C1 passes where C2 fails, the
+  reachability problem is solved by a DNS record.
+</div>
+
+<h2>Addresses from the phone</h2>
+<div class="row">
+  <div class="field">
+    <label>Hotspot IPv4 + port (from the connect-info chip, e.g. 10.142.169.193:8080)</label>
+    <input id="in4" placeholder="10.142.169.193:8080" />
+  </div>
+  <div class="field">
+    <label>IPv6 global + port (optional, e.g. 2a02:a020:3c3:4dc7::6a:8080)</label>
+    <input id="in6" placeholder="2a02:a020:3c3:4dc7:c941:350f:5008:5ff1:8080" />
+  </div>
+  <div class="btns">
+    <button class="ok" onclick="buildTargets()">Build the test URLs</button>
+    <button onclick="resetAll()">Clear saved verdicts</button>
+  </div>
+</div>
+
+<h2>A. What this browser actually is</h2>
+<div class="row">
+  <table id="fingerprint"></table>
+  <div class="why">Runs automatically. The Chromium version here is the real one,
+    read off the car itself. Our docs still carry a stale "140" that was never
+    re-confirmed. The connection row may also answer whether the car is on the
+    phone's hotspot or on its own Premium Connectivity LTE.</div>
+</div>
+
+<h2>B. Public internet, scheme and port isolated</h2>
+<div id="sectionB"></div>
+
+<h2>C. The phone, four URL shapes</h2>
+<div id="sectionC"></div>
+
+<h2>Summary to photograph</h2>
+<div class="row">
+  <div class="btns">
+    <button class="ok" onclick="copyAll()">Copy everything</button>
+  </div>
+  <div id="log"></div>
+</div>
+
+<script>
+'use strict';
+
+var LS = 'vehplayer-reach-v1';
+var state = load();
+
+function load() {
+  try { return JSON.parse(localStorage.getItem(LS) || '{}'); } catch (e) { return {}; }
+}
+function save() {
+  try { localStorage.setItem(LS, JSON.stringify(state)); } catch (e) {}
+}
+function stamp() { return new Date().toISOString().substr(11, 8); }
+
+function log(m) {
+  state.log = (state.log || '') + '[' + stamp() + '] ' + m + '\n';
+  save();
+  render();
+}
+function render() {
+  document.getElementById('log').textContent = state.log || '(nothing logged yet)';
+}
+
+document.getElementById('here').textContent = location.href;
+
+/* ---------- Section A: fingerprint, fully automatic ---------- */
+(function () {
+  var ua = navigator.userAgent;
+  var m = ua.match(/Chrom(?:e|ium)\/(\d+)/);
+  var c = navigator.connection || {};
+  var rows = [
+    ['User agent', ua],
+    ['Chromium major', m ? m[1] : 'not detected'],
+    ['Viewport', innerWidth + ' x ' + innerHeight + ' @ dpr ' + (devicePixelRatio || 1)],
+    ['Connection type', (c.type || c.effectiveType)
+        ? ((c.type || '?') + ' / ' + (c.effectiveType || '?')
+           + (c.downlink ? ', ' + c.downlink + ' Mbps' : '')
+           + (c.rtt ? ', rtt ' + c.rtt + 'ms' : ''))
+        : 'Network Information API unavailable'],
+    ['WebCodecs', typeof VideoDecoder !== 'undefined' ? 'yes' : 'no'],
+    ['MSE', typeof MediaSource !== 'undefined' ? 'yes' : 'no'],
+    ['Native HLS', (document.createElement('video')
+        .canPlayType('application/vnd.apple.mpegurl') || 'no')],
+    ['Secure context', String(window.isSecureContext)]
+  ];
+  var t = document.getElementById('fingerprint');
+  rows.forEach(function (r) {
+    var tr = t.insertRow();
+    tr.insertCell().textContent = r[0];
+    var td = tr.insertCell();
+    td.className = 'v';
+    td.textContent = r[1];
+  });
+  if (!state.fingerprintLogged) {
+    log('CAR FINGERPRINT: ' + rows.map(function (r) { return r[0] + '=' + r[1]; }).join(' | '));
+    state.fingerprintLogged = true;
+    save();
+  }
+})();
+
+/* ---------- shared row rendering ---------- */
+function makeRow(host, id, label, why, url, mode) {
+  var div = document.createElement('div');
+  div.className = 'row';
+  var saved = (state.verdicts || {})[id];
+  div.innerHTML =
+    '<div class="rowtop">' +
+      '<div class="chip ' + (saved || 'PENDING') + '" id="chip-' + id + '">' +
+        (saved || 'PENDING') + '</div>' +
+      '<div><div class="label">' + label + '</div>' +
+      '<div class="why">' + why + '</div></div>' +
+    '</div>' +
+    '<div class="url">' + (url || '(fill in the addresses above)') + '</div>' +
+    '<div class="btns" id="btns-' + id + '"></div>';
+  host.appendChild(div);
+
+  var btns = div.querySelector('#btns-' + id);
+  if (mode === 'nav' && url) {
+    var a = document.createElement('a');
+    a.className = 'golink';
+    a.href = url;
+    a.textContent = 'GO';
+    a.addEventListener('click', function () { log(id + ': opening ' + url); });
+    btns.appendChild(a);
+  }
+  if (mode === 'nav') {
+    btns.appendChild(mkBtn('PASS, it loaded', 'ok', function () { verdict(id, 'PASS', url); }));
+    btns.appendChild(mkBtn('FAIL', 'bad', function () { verdict(id, 'FAIL', url); }));
+  }
+}
+function mkBtn(text, cls, fn) {
+  var b = document.createElement('button');
+  b.className = cls;
+  b.textContent = text;
+  b.addEventListener('click', fn);
+  return b;
+}
+function verdict(id, v, url) {
+  state.verdicts = state.verdicts || {};
+  state.verdicts[id] = v;
+  save();
+  var chip = document.getElementById('chip-' + id);
+  if (chip) { chip.className = 'chip ' + v; chip.textContent = v; }
+  log('VERDICT ' + id + ' = ' + v + '  (' + (url || '') + ')');
+}
+function setChip(id, v, extra) {
+  var chip = document.getElementById('chip-' + id);
+  if (chip) { chip.className = 'chip ' + v; chip.textContent = v; }
+  state.verdicts = state.verdicts || {};
+  state.verdicts[id] = v;
+  save();
+  log('AUTO ' + id + ' = ' + v + (extra ? '  (' + extra + ')' : ''));
+}
+
+/* ---------- Section B: automatic, https only so no mixed-content wall ---------- */
+var B = document.getElementById('sectionB');
+makeRow(B, 'B1', 'B1. Control: this origin over standard https',
+        'Must pass. If it does not, the car has no internet and nothing below means anything.',
+        location.origin + '/', 'auto');
+makeRow(B, 'B2', 'B2. https on a NON-STANDARD port (8443)',
+        'Cloudflare proxies 8443, so this is the same trusted host on an unusual port. ' +
+        'Fails here = the car objects to the port, which matters because Android cannot bind 443.',
+        location.origin.replace(/:\d+$/, '') + ':8443/', 'auto');
+
+function probe(id, url) {
+  setChipRunning(id);
+  var done = false;
+  var t = setTimeout(function () {
+    if (!done) { done = true; setChip(id, 'FAIL', 'timeout after 8s'); }
+  }, 8000);
+  fetch(url, { mode: 'no-cors', cache: 'no-store' })
+    .then(function () {
+      if (done) return; done = true; clearTimeout(t);
+      setChip(id, 'PASS', 'fetch resolved');
+    })
+    .catch(function (e) {
+      if (done) return; done = true; clearTimeout(t);
+      setChip(id, 'FAIL', String(e).slice(0, 110));
+    });
+}
+function setChipRunning(id) {
+  var chip = document.getElementById('chip-' + id);
+  if (chip) { chip.className = 'chip RUNNING'; chip.textContent = 'RUNNING'; }
+}
+probe('B1', location.origin + '/');
+probe('B2', location.origin.replace(/:\d+$/, '') + ':8443/');
+
+/* ---------- Section C: the phone, built from the pasted addresses ---------- */
+
+/* sslip.io encodes IPv6 with dashes for colons, so 2a02:a020::6a becomes
+   2a02-a020--6a.sslip.io and resolves straight back to that address. */
+function v6ToSslip(v6) { return v6.replace(/:/g, '-') + '.sslip.io'; }
+
+function splitHostPort(raw, isV6) {
+  raw = (raw || '').trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+  if (!raw) return null;
+  if (isV6) {
+    var i = raw.lastIndexOf(':');
+    if (i < 0) return null;
+    return { host: raw.slice(0, i).replace(/^\[|\]$/g, ''), port: raw.slice(i + 1) };
+  }
+  var p = raw.split(':');
+  return { host: p[0], port: p[1] || '8080' };
+}
+
+function buildTargets() {
+  var C = document.getElementById('sectionC');
+  C.innerHTML = '';
+  var a4 = splitHostPort(document.getElementById('in4').value, false);
+  var a6 = splitHostPort(document.getElementById('in6').value, true);
+  state.in4 = document.getElementById('in4').value;
+  state.in6 = document.getElementById('in6').value;
+  save();
+
+  if (a4) {
+    var sslip4 = a4.host + '.sslip.io';
+    makeRow(C, 'C1', 'C1. HOSTNAME that resolves to the private address',
+      'THE decisive row. A public name, resolving to the same private IP that C2 uses. ' +
+      'Passes = the filter reads the URL, not the resolved address, and a DNS record ends this.',
+      'http://' + sslip4 + ':' + a4.port + '/ping', 'nav');
+    makeRow(C, 'C2', 'C2. Bare private IP literal (the known-bad baseline)',
+      'Every attempt for ten sessions looked like this. Expected to fail. It is the control ' +
+      'that makes C1 meaningful.',
+      'http://' + a4.host + ':' + a4.port + '/ping', 'nav');
+  }
+  if (a6) {
+    var sslip6 = v6ToSslip(a6.host);
+    makeRow(C, 'C3', 'C3. Bare IPv6 literal (reproduce ERR_ACCESS_DENIED)',
+      'This is what failed on the last drive. Confirm it reproduces, and note the exact error text.',
+      'http://[' + a6.host + ']:' + a6.port + '/ping', 'nav');
+    makeRow(C, 'C4', 'C4. HOSTNAME that resolves to the IPv6 address',
+      'Same question as C1 but for IPv6. If C3 fails and C4 passes, the objection was the ' +
+      'literal, not the address family.',
+      'http://' + sslip6 + ':' + a6.port + '/ping', 'nav');
+  }
+  // location.hostname is empty when this file is opened directly off disk, which
+  // would silently build "http://:8080/" and waste a row of the one car session.
+  var pubHost = location.hostname || 'veh.modev.be';
+  makeRow(C, 'C5', 'C5. Plain http to a PUBLIC host on a non-standard port',
+    'No phone involved. Isolates whether plain http, or the odd port, is objectionable on its own.',
+    'http://' + pubHost + ':8080/', 'nav');
+
+  if (!a4 && !a6) {
+    C.innerHTML = '<div class="row"><div class="label">Paste at least the hotspot IPv4 above, ' +
+                  'then tap Build the test URLs.</div></div>';
+  } else {
+    log('TARGETS BUILT  ipv4=' + (state.in4 || '-') + '  ipv6=' + (state.in6 || '-'));
+  }
+}
+
+function resetAll() {
+  state = {};
+  save();
+  location.reload();
+}
+
+function copyAll() {
+  var out = 'vehplayer reachability matrix\n' + location.href + '\n\n' + (state.log || '');
+  navigator.clipboard && navigator.clipboard.writeText(out)
+    .then(function () { log('summary copied to clipboard'); })
+    .catch(function () { log('clipboard blocked, photograph the log instead'); });
+}
+
+/* restore a previous session's inputs so a mid-test navigation is painless */
+if (state.in4) document.getElementById('in4').value = state.in4;
+if (state.in6) document.getElementById('in6').value = state.in6;
+var qs = new URLSearchParams(location.search);
+if (qs.get('ip4')) document.getElementById('in4').value = qs.get('ip4');
+if (qs.get('ip6')) document.getElementById('in6').value = qs.get('ip6');
+if (document.getElementById('in4').value || document.getElementById('in6').value) buildTargets();
+
+render();
+log('page loaded');
+</script>
+</body>
+</html>
