@@ -418,6 +418,45 @@ the precondition that had to hold before the in-car run is worth doing.
 Still proves nothing about the car: it is the only device carrying the
 filter. But the experiment is now de-risked.
 
+### RESULT: hypothesis (b) is dead. The filter reads the resolved address.
+
+**MEASURED, session 10, in the car.** `http://10.247.244.242.sslip.io:8080/ping`
+returned **`ERR_CONNECTION_REFUSED`**, with the browser naming the hostname
+in the error ("10.247.244.242.sslip.io heeft de verbinding geweigerd"), so
+DNS resolved fine and the refusal came at connection time.
+
+**Hypothesis (b) is therefore false: a hostname does not launder a private
+address.** Tesla's filter inspects the resolved IP, exactly as the more
+likely reading predicted. Consequences:
+
+- The sslip.io approach is dead **for RFC1918**, and so is any variant of
+  it on our own domain, because the resolved address is identical.
+- The **Plex precedent (§8d) does not transfer.** `*.plex.direct` works in
+  normal browsers; it does not survive Tesla's filter. Do not cite it as
+  evidence for this product again.
+- The carrier-IPv6 dependency does **not** get to be avoided this way.
+
+**But note the error codes differ, and that is now the live signal:**
+
+| Target | Error |
+|---|---|
+| RFC1918 literal (session 9) | `ERR_CONNECTION_REFUSED` |
+| RFC1918 via hostname (this test) | `ERR_CONNECTION_REFUSED` |
+| IPv6 GUA literal (session 10) | `ERR_ACCESS_DENIED` |
+
+RFC1918 refuses identically however it is addressed, which is the
+address-based filter behaving consistently. The IPv6 GUA produces a
+**different** error, so it is not hitting that same rule. IPv6 remains the
+only rootless path not yet ruled out, and what `ERR_ACCESS_DENIED` actually
+represents is now the single most valuable unknown.
+
+Highest-priority follow-ups, in order: (1) a **public** host on the same
+non-standard port (`http://veh.modev.be:8080/`), because if that fails then
+port 8080 has been confounding every test for ten sessions and the address
+was never the only variable; (2) reproduce the IPv6 literal error on the
+current GUA; (3) the same IPv6 address via an sslip hostname, to see
+whether the error changes.
+
 The remaining test costs nothing and needs no build:
 
 1. **Laptop control first** (same method that cracked session 9): from a
