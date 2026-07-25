@@ -501,6 +501,73 @@ Two ten-second observations settle it, and they outrank everything else:
    host on the same non-standard port, no phone involved. If this fails,
    port 8080 has been confounding every single test for ten sessions.
 
+### CONFIRMED: the car has no IPv6, and that closes the rootless phone path
+
+**MEASURED, session 10, decisive.** `https://ipv6.google.com/` in the car
+returned `DNS_PROBE_FINISHED_NXDOMAIN`. The same URL works on the founder's
+phone. `ipv6.google.com` is an AAAA-only host with no A record and no
+relationship to us, so this is an independent confirmation of the reading
+above: **the car cannot resolve or route IPv6 on the phone's hotspot.**
+
+Tier 1 was therefore never failing because of Tesla's filter. It was
+failing because the car has no IPv6 at all, so the phone's GUA was
+unreachable regardless of policy. The `ERR_ACCESS_DENIED` on the IPv6
+literal is now a secondary curiosity rather than the central question.
+
+Root cause is Android's downstream tethering: the phone holds a GUA on
+`rmnet_data7` (cellular), but is not delegating an IPv6 prefix to hotspot
+clients, so the car never receives an address. This is exactly the
+prerequisite session 7 wrote down and never verified. It is also
+carrier-dependent, which makes it a poor product foundation even if it
+could be coaxed to work on this one SIM.
+
+**The full ladder, with every rung now measured:**
+
+| Path | Status |
+|---|---|
+| RFC1918 literal | MEASURED dead, Tesla filter, TCP and UDP (session 9) |
+| RFC1918 via hostname | MEASURED dead, same refusal (session 10) |
+| IPv6 GUA | MEASURED dead, car has no IPv6 at all (session 10) |
+| CGNAT via VpnService | MEASURED dead, Android BPF ingress discard (session 7) |
+| Public-style via VpnService | MEASURED dead, same BPF hardening (session 7) |
+
+**There is no remaining address a rootless Android phone can present that
+this car will accept.** IPv4 is either RFC1918 (blocked) or public (not
+ours, and the only mechanism to borrow it is BPF-dead), and IPv6 is not
+routable from the car. That is a complete, evidenced conclusion rather than
+another open question, and it should be treated as settling the phone-only
+architecture rather than as one more wall to poke at.
+
+### What survives, and the cheap way to validate it
+
+One address family was never actually disproven: **CGNAT / RFC6598 shared
+space, `100.64.0.0/10`.** It is explicitly *not* RFC1918, so Tesla's
+measured filter does not obviously cover it. Tier 2 was designed around
+exactly that reasoning and it died on the *delivery mechanism*
+(VpnService plus BPF ingress discard), never on the address being refused.
+No packet ever reached the car for it to accept or reject.
+
+A rootless phone cannot put a `100.64.x.x` address on its AP interface. A
+small Linux board can, trivially, along with everything else §6 lists
+(bind 443, run its own DNS, hold a certificate, guarantee addressing
+independent of the carrier). **This turns the dongle from an upsell into
+the answer**, and it gives the dongle a concrete, evidence-derived design
+rule: **hand out `100.64.0.0/10`, never RFC1918.**
+
+Before spending anything on hardware, this is testable with whatever is
+already lying around: bring up any AP (a laptop, a spare router, a travel
+router) configured to serve `100.64.0.0/10` instead of the usual
+`192.168.x`, join the car to it, and open `http://100.64.0.1:8080/` from
+the car. If that loads where RFC1918 refused, the dongle direction is
+validated for the price of an afternoon. If it refuses identically, Tesla
+blocks by "not a public address" rather than by RFC1918 specifically, and
+the dongle needs a genuinely public address to be viable, which changes its
+cost and design substantially.
+
+Note also: `http://veh.modev.be:8080/` was inconclusive, Cloudflare
+redirects it to https, so the non-standard-port question is still formally
+open. It matters much less now, since a dongle can bind 443 anyway.
+
 The remaining test costs nothing and needs no build:
 
 1. **Laptop control first** (same method that cracked session 9): from a
