@@ -1,10 +1,114 @@
 # vehplayer - Reachability rethink (session 10, Opus 5 pass)
 
+> ## ANSWERED. Read this box first, the rest of the document is the road to it.
+>
+> **Tesla's browser blocks on exactly one thing: the destination IP being
+> RFC1918. Nothing else.** Not local networks as a concept, not hotspot
+> topology, not non-standard ports, not plain http. Confirmed three times
+> independently from shipping products' own configuration (§0 below).
+>
+> Two escape routes are proven in production:
+> 1. **Hand out non-private addresses from the access point**, so the
+>    server's address is simply not RFC1918. tesla-android did this for
+>    about a year with `9.9.0.0/16`, and the car loaded `http://9.9.0.1`
+>    over **plain http on port 80**.
+> 2. **Keep RFC1918 internally and DNAT a single non-private IP** on the AP
+>    interface, so the browser's peer address is non-private even though the
+>    socket terminates on a private host. Both currently-maintained projects
+>    use this.
+>
+> This vindicates the CGNAT hypothesis in §8c: `100.64.0.0/10` is not
+> RFC1918, so it is in the clear. It also confirms the §4 design shape (real
+> hostname, real certificate, port 443) is achievable, because route 2 is
+> exactly what makes a publicly-trusted certificate possible.
+>
+> **It does not revive the phone-only product.** Both routes require control
+> of the AP's addressing or its NAT table. Android grants neither to an
+> unrooted app; tesla-android had to patch AOSP itself. The hardware pivot
+> in `PIVOT_HARDWARE.md` stands, but it is no longer a bet.
+
 > Written after the founder asked for a fresh strategic look: what has been
 > overlooked, what options remain, and what still gates a public release.
 > This is an analysis document, not a build spec. Evidence tags per house
 > rule: MEASURED (verified on our own car/repo), REPORTED (public source,
 > cited), ASSUMED (inference, flagged).
+
+## 0. The evidence, and what we do differently
+
+Three shipping products solve this, and their configuration is public.
+
+**tesla-android generation 1** (2022 to mid-2023) patched AOSP's tethering
+stack so the hotspot allocated out of IBM's public `9.0.0.0/8` instead of
+the stock RFC1918 prefixes, then told users to open the bare IP literal
+`9.9.0.1`. REPORTED, their own
+[tethering patch](https://github.com/tesla-android/android-raspberry-pi/blob/main/patches-aosp/packages/modules/Connectivity/0001-Tethering-change-ip-prefixes.patch)
+and [install guides](https://github.com/tesla-android/tesla-android.github.io).
+**A bare IP literal, plain http, port 80, worked for a year.** That single
+fact retires three of the four suspects §1 lists.
+
+**tesla-android generation 2** (current) went back to `172.16.0.0/24`
+internally and instead points the browser at `https://device.teslaandroid.com`
+on 443. The Pi's own dnsmasq answers that name with `104.248.101.213`, a
+real DigitalOcean-range IP, which is then DNAT'd to the local `172.16.0.1`
+with matching SNAT on the way back, so the browser only ever sees a
+non-private peer. Their release notes state the change plainly: "Tesla
+Android no longer assigns public range IP addresses... Instead, a singular
+IP (104.248.101.213) redirects to the device with iptables". REPORTED,
+[netd patch](https://github.com/tesla-android/android-raspberry-pi/blob/main/patches-aosp/system/netd/0001-Configurable-offline-mode-iptables-for-frontend-acce.patch),
+[release notes](https://github.com/tesla-android/tesla-android.github.io/blob/main/release-notes.md).
+TLS is genuine, with a real certificate for a domain they own baked into
+the device image.
+
+**marcraft2/tesla-carplay** does the same and says why out loud: "Tesla's
+browser blocks access to the website which is located on a private IP
+address (192.168.X.X, 10.X.X.X, 172.X.X.X). We can bypass this security
+with IPTABLES." It DNATs `240.3.3.4`, RFC1112 Class E reserved space, to
+its local `192.168.0.254`, and serves `https://carplay.ml` with a genuine
+Let's Encrypt certificate. REPORTED,
+[tesla-doc.md](https://github.com/marcraft2/tesla-carplay/blob/master/tesla-doc.md).
+
+**CarlinKit T2C** has users open `tespush.com`, which resolves publicly to
+`101.200.208.6` (Alibaba Cloud). MEASURED via DNS lookup. The firmware is
+closed, but CarlinKit's own FAQ treats "your connection is not private" as
+a bug fixed by a firmware update, which is the signature of an expired
+certificate shipped inside the device.
+
+### What we should do differently, and why it is better
+
+Both open-source projects **squat on address space they do not own**:
+`9.0.0.0/8` belongs to IBM, and `240.3.3.4` is reserved. It works only
+because the car's default route points at the AP, which swallows the packet
+before it can escape. It also means the car cannot reach the real service
+at those addresses while connected, which is why tesla-android additionally
+black-holes a list of `*.tesla.services` endpoints.
+
+**`100.64.0.0/10` (RFC6598) is the honest version of the same trick.** It
+is shared address space explicitly designated for exactly this kind of
+carrier-side/NAT use, it is not RFC1918 so Tesla's filter does not touch
+it, and it belongs to nobody, so nothing is being squatted and nothing
+legitimate is being shadowed. That makes route 1 available without the
+ethical and operational debt both incumbents carry.
+
+Combined with the §4 design, the resulting shape needs no NAT tricks at
+all:
+
+```
+AP hands out            100.64.0.0/24, box at 100.64.0.1   (not RFC1918, not squatted)
+Box's own DNS answers   car.<ourdomain> -> 100.64.0.1      (no public DNS dependency)
+Box serves              https:// on 443                    (root, so 443 is bindable)
+Certificate             real wildcard via DNS-01           (validates domain control, not IP)
+```
+
+That is a real hostname, a publicly-trusted certificate, a standard port
+and a legitimate address, with no packet ever leaving the car and no
+address space borrowed from anyone. It is a cleaner answer than either
+shipping product's.
+
+Licensing note: tesla-android is GPL-3.0. What was taken here is a
+**factual observation about Tesla's browser behaviour**, established from
+public configuration and release notes, plus the design decision to reject
+their mechanism in favour of RFC6598. No code is copied or modelled, per
+the standing Castla rule in `CLAUDE.md`.
 
 ## 1. The blind spot: ten sessions changed one variable and held three fixed
 

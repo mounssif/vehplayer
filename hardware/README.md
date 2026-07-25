@@ -26,6 +26,26 @@ had the chance to accept or refuse it.
 
 A Raspberry Pi can present it trivially. That is the entire test.
 
+## Update: we now expect this to pass
+
+`docs/REACHABILITY_RETHINK.md` §0 establishes, from three shipping
+products' own public configuration, that **Tesla's browser blocks on the
+destination IP being RFC1918 and on nothing else**. tesla-android ran for
+about a year on `9.9.0.0/16` with the car loading a bare IP literal over
+plain http on port 80.
+
+`100.64.0.0/10` is not RFC1918, so it should be in the clear. That turns
+this script from an exploratory test into a **confirmation on our own
+hardware**, which is still worth doing before anything is built on it, and
+still cheap.
+
+It also settles a design choice. Both existing projects reach a non-private
+address by squatting: `9.0.0.0/8` is IBM's, `240.3.3.4` is reserved. That
+works only because the AP swallows the packet, and it shadows whatever
+really lives at those addresses. RFC6598 is space designated for exactly
+this kind of use and belongs to nobody, so **the box should hand out
+`100.64.0.0/10` rather than borrow someone else's prefix.**
+
 ## The test
 
 Needs a Pi with WiFi, nothing else. No phone, no internet, no vehplayer app.

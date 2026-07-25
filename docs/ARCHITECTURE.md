@@ -189,7 +189,20 @@ bytes 10..  payload
     prior token's state.
 
 ## 7. Reachability Layer (the RFC1918 problem)
-- Constraint (REPORTED, re-confirmed Nov 2025): the Tesla browser refuses connections to RFC1918 IPv4 (10/8, 172.16/12, 192.168/16). Standard hotspot addressing is therefore unreachable.
+
+> **SOLVED, session 10.** The constraint below is exactly right and is the
+> *only* rule: Tesla's browser blocks on the destination IP being RFC1918,
+> and on nothing else. Not ports, not plain http, not IP literals, not
+> local topology. Established from three shipping products' own public
+> configuration, see `docs/REACHABILITY_RETHINK.md` §0. The fix is to serve
+> from an address that is simply not RFC1918, for which `100.64.0.0/10`
+> (RFC6598 shared space) is the clean choice. This requires control of the
+> access point's addressing, which an unrooted Android app does not have,
+> so it is delivered by the hardware pivot in `docs/PIVOT_HARDWARE.md`
+> rather than by the phone. Tiers 1 to 3 below are retained as the record
+> of how this was narrowed down; all three are measured dead on a phone.
+
+- Constraint (REPORTED, re-confirmed Nov 2025, now fully characterised): the Tesla browser refuses connections to RFC1918 IPv4 (10/8, 172.16/12, 192.168/16). Standard hotspot addressing is therefore unreachable.
 - **MEASURED (session 7, Galaxy S23 / Android 16, real Model 3): the VpnService virtual-address mechanism (tiers 2/3 below) is dead on modern Android.** Android 14+-era BPF "ingress discard" hardening pins each VPN address to its tun interface as the only allowed ingress path (`dumpsys connectivity trafficcontroller` → `sIngressDiscardMap: [100.99.9.1]: tun0, tun0`); TCP/UDP from any tethered peer (the car over hotspot, a laptop over USB) is dropped in BPF before the TCP stack ever sees the SYN (zero SYN-RECV observed live). ICMP is not covered by the check, so ping "working" is a false success signal. No app-side workaround exists without root. The mechanism may still work on pre-hardening Android versions, so tier (c) stays implemented as a legacy-device fallback, but **tier 1 (IPv6) is the only viable path on current Android** - it puts a real address on the AP interface itself, which the strong-host/ingress-discard model permits. Two prerequisites verified missing on the session-7 test SIM: the carrier APN must actually be dual-stack (phone had zero IPv6 GUA on cellular that night; check the APN protocol setting), and Android's downstream IPv6 tethering must delegate a prefix to hotspot clients.
 - Candidate solutions, tested in this order at Gate 1:
   1. **IPv6 (now the primary path, see MEASURED note above):** give the phone's hotspot interface a global-scope IPv6 (delegated from cellular, or configured) and serve on it; DNS AAAA on go.vepla.app pointing to a stable ULA/GUA scheme is the open design question (per-device DNS is the hard part; a numeric-IPv6 URL QR code is the pragmatic v1 if DNS is awkward). If the browser block is IPv4-only, this eliminates VpnService entirely.
