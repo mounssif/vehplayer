@@ -398,7 +398,27 @@ If (b) holds, the consequences are large: no IPv6 requirement, therefore
 product works on any SIM including IPv4-only ones. That directly answers
 the founder's worry about being hostage to the provider.
 
-The test costs nothing and needs no build:
+**MEASURED, session 10, control test passed.** The founder ran the control
+from a device on the hotspot, no car and no new APK involved (build-31
+already serves `/ping`):
+
+| URL | Result |
+|---|---|
+| `http://<hotspot-ip>:8080/ping` | **pong** |
+| `http://<hotspot-ip>.sslip.io:8080/ping` | **pong** |
+
+Both returned `pong`, which settles two things: the carrier's resolver does
+**not** apply DNS-rebinding protection (it happily returns the private
+address for an sslip.io name), and the phone answers on the hostname form
+just as it does on the literal (NanoHTTPD does not care about the Host
+header). **So the hostname form is a valid test rather than a DNS dead end,
+and if it fails in the car that failure is Tesla, not DNS.** This is exactly
+the precondition that had to hold before the in-car run is worth doing.
+
+Still proves nothing about the car: it is the only device carrying the
+filter. But the experiment is now de-risked.
+
+The remaining test costs nothing and needs no build:
 
 1. **Laptop control first** (same method that cracked session 9): from a
    laptop on the hotspot, open `http://<hotspot-ip>.sslip.io:<port>/diag`.

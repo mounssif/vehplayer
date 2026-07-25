@@ -399,6 +399,33 @@ class CarDashboardActivity : AppCompatActivity() {
      * autorun - scan with any second device on the hotspot and the whole
      * connectivity probe runs with zero typing).
      */
+    /**
+     * Turns a local address into a public HOSTNAME that resolves straight back
+     * to it. sslip.io answers `<ip>.sslip.io` with that exact address, private
+     * ranges included; IPv6 uses dashes for colons, so `::` becomes `--`.
+     *
+     * Why this exists (docs/REACHABILITY_RETHINK.md §8c): every in-car attempt
+     * for ten sessions used a bare IP literal, so nothing in our evidence can
+     * distinguish a filter that inspects the *resolved address* from one that
+     * simply rejects private-looking *literals in the URL*. If it is the
+     * latter, this form reaches the phone where the literal does not, and the
+     * whole reachability problem collapses into a DNS record with no IPv6 and
+     * no carrier dependency.
+     *
+     * MEASURED (session 10, founder's device on the hotspot): both
+     * `http://<ip>:8080/ping` and `http://<ip>.sslip.io:8080/ping` returned
+     * "pong", so the carrier's resolver does not strip private answers and
+     * this form is a valid test rather than a DNS dead end. Whether the *car*
+     * accepts it is the open question this URL exists to answer.
+     *
+     * Note `/go` needs no change to support this: HttpAssetServer derives both
+     * the redirect target and the `ws://` URL from the request's Host header,
+     * so arriving via a hostname keeps the whole session on that hostname (and
+     * sidesteps IPv6 bracket syntax entirely).
+     */
+    private fun sslipHost(ip: String): String =
+        if (ip.contains(':')) ip.replace(':', '-') + ".sslip.io" else "$ip.sslip.io"
+
     private fun showConnectionInfo(url: String, hotspotIp: String?, hotspotIface: String?, probeUrl: String?) {
         val overlay = findViewById<FrameLayout>(R.id.probeQrOverlay)
         val image = findViewById<ImageView>(R.id.probeQrImage)
@@ -459,6 +486,17 @@ class CarDashboardActivity : AppCompatActivity() {
             if (v6.isNotEmpty() && v6Port != null) {
                 append("\n\nIPv6 test URLs (open from a device on the hotspot; whichever loads = reachable):")
                 v6.forEach { append("\n  http://[").append(it.address).append("]:").append(v6Port).append("/diag") }
+            }
+            // Hostname form of the same addresses (docs/REACHABILITY_RETHINK.md
+            // §8c). Shown ALONGSIDE the literal URLs above, never replacing
+            // them, so nothing regresses if the car still refuses these. If the
+            // car accepts a hostname where it refused the literal, this /go URL
+            // is the round trip that has never completed in ten sessions.
+            if (v6Port != null && (hotspotIp != null || v6.isNotEmpty())) {
+                append("\n\nHOSTNAME form of the same addresses (try these in the car if the")
+                append(" literal URLs above are refused):")
+                hotspotIp?.let { append("\n  http://").append(sslipHost(it)).append(':').append(v6Port).append("/go") }
+                v6.forEach { append("\n  http://").append(sslipHost(it.address)).append(':').append(v6Port).append("/go") }
             }
             if (probeUrl != null) {
                 append("\n\nIn the car type this URL (or scan it with a phone/laptop on the hotspot): ")
