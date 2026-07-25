@@ -81,8 +81,40 @@ check_deps() {
   }
 }
 
+# The two failures that actually bite when bringing up an AP on a Pi, both of
+# which present as a mysteriously absent SSID rather than as an error.
+preflight() {
+  # 1. Soft-blocked radio. Common on a fresh image that has never joined a network.
+  if command -v rfkill >/dev/null && rfkill list wifi 2>/dev/null | grep -qi 'soft blocked: yes'; then
+    log "wifi is soft-blocked, unblocking"
+    rfkill unblock wifi || true
+    sleep 1
+  fi
+
+  # 2. No regulatory domain set. Without a country the radio legally cannot pick
+  # a channel, so hostapd/wpa_supplicant silently refuses to beacon and you get
+  # an AP that "starts fine" and is invisible to every device in the car park.
+  local reg
+  reg=$(iw reg get 2>/dev/null | awk '/country/ {print $2}' | tr -d ':' | head -1)
+  if [ -z "$reg" ] || [ "$reg" = "00" ]; then
+    err "No WiFi country is set on this Pi (regulatory domain is '${reg:-unset}')."
+    err "The radio will not transmit and the SSID will simply never appear."
+    err "Fix it with:  sudo raspi-config  ->  Localisation Options  ->  WLAN Country"
+    err "or non-interactively:  sudo raspi-config nonint do_wifi_country BE"
+    exit 1
+  fi
+  log "regulatory domain: $reg"
+
+  if ! nmcli -t -f DEVICE,STATE device 2>/dev/null | grep -q "^$IFACE:"; then
+    err "$IFACE is not managed by NetworkManager, so nmcli cannot configure it."
+    err "On Raspberry Pi OS this usually means an older dhcpcd-based release."
+    exit 1
+  fi
+}
+
 up() {
   check_deps
+  preflight
   log "creating AP '$SSID' on $IFACE at $AP_CIDR"
 
   nmcli connection delete "$CON_NAME" >/dev/null 2>&1 || true
