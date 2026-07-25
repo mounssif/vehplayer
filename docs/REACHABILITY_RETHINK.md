@@ -457,6 +457,50 @@ was never the only variable; (2) reproduce the IPv6 literal error on the
 current GUA; (3) the same IPv6 address via an sslip hostname, to see
 whether the error changes.
 
+### The IPv6 result may not be about Tesla at all
+
+Two more in-car MEASURED results, same session, on the current GUA
+(`2a02:a020:5d0:758f:79f7:7d03:88f6:bfda`, note it changed from the
+previous night, which confirms the address is dynamic):
+
+| Target | Result |
+|---|---|
+| `http://[<GUA>]:8080/ping` | `ERR_ACCESS_DENIED` (reproduces) |
+| `http://<GUA-as-sslip-name>:8080/ping` | **`DNS_PROBE_FINISHED_NXDOMAIN`** |
+
+The second is **not a Tesla refusal**, it is a name-resolution failure, and
+that changes the reading. Verified from this sandbox: that sslip name has
+**only an AAAA record and no A record**:
+
+```
+A    (IPv4) -> NONE
+AAAA (IPv6) -> 2a02:a020:5d0:758f:79f7:7d03:88f6:bfda
+```
+
+The most economical explanation is that **the car queried only for A
+records, got nothing, and reported NXDOMAIN**, which is what a client with
+no IPv6 connectivity does. If that is right, the car has no IPv6 on the
+hotspot link at all, and tier 1 has been failing for a reason that has
+nothing to do with Tesla's filter: **the car cannot route to any IPv6
+address, so the phone's GUA was never reachable regardless of policy.**
+
+This is exactly the prerequisite session 7 wrote down and nobody ever
+verified: "Android's downstream IPv6 tethering must delegate a prefix to
+hotspot clients." The phone having a GUA on `ap_br_swlan0` is **not** the
+same as the phone advertising a prefix so the car gets its own IPv6
+address. That link in the chain has never been checked.
+
+Two ten-second observations settle it, and they outrank everything else:
+
+1. **`https://ipv6.google.com/` in the car.** Loads = the car has working
+   IPv6, so `ERR_ACCESS_DENIED` really is a Tesla policy about the phone's
+   address. Fails = the car has no IPv6, tier 1 is dead for an Android
+   tethering reason rather than a Tesla one, and the whole IPv6 branch of
+   this document needs rewriting around that.
+2. **`http://veh.modev.be:8080/` in the car** (still not run). A public
+   host on the same non-standard port, no phone involved. If this fails,
+   port 8080 has been confounding every single test for ten sessions.
+
 The remaining test costs nothing and needs no build:
 
 1. **Laptop control first** (same method that cracked session 9): from a
